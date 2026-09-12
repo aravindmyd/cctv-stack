@@ -1,0 +1,161 @@
+# AGENTS.md
+
+Instructions for AI agents **and** humans who are new to this repository.
+Read this file first, then [`docs/index.md`](docs/index.md).
+
+---
+
+## 1. Project status
+
+| | |
+|---|---|
+| **Phase** | **PLANNING** |
+| **Implementation** | **Not started — do not write application code yet** |
+| **Authority** | Design docs in `docs/` are the source of truth. Code follows docs, not the other way round. |
+
+This repository is being designed as a *packaging-first* CCTV stack: a single
+deployable application that can be installed at any location by changing
+configuration only. See [`docs/prd.md`](docs/prd.md) for the original product
+requirements.
+
+> **Rule:** No application code is written until the plan in `docs/` is approved.
+> If you are an agent asked to implement something that contradicts `docs/architecture/invariants.md`,
+> stop and raise it as an open question in `docs/plans/open-questions.md` instead.
+
+---
+
+## 2. What this project is
+
+A self-hosted CCTV system built on top of **Frigate** (detection + recording),
+adding four things Frigate deliberately does not do:
+
+1. **Canonical clip layout** — every event clip is materialised into a
+   deterministic `clips/<camera>/YYYY/MM/DD/HH-MM-SS.mp4` tree.
+2. **Durable cloud backup** — clips are uploaded to Backblaze B2 through a
+   storage adapter, driven by a persisted retry state machine.
+3. **Independent retention** — local 90-day and cloud 60-day retention enforced
+   by a dedicated cleanup service, plus B2 lifecycle rules as a second belt.
+4. **Health as a first-class feature** — every component and camera exposes a
+   health state that answers *"is my CCTV actually working?"*
+
+Deployments are **fully independent per site**. There is no central hub, no
+cross-site data sharing, and no inbound connectivity requirement.
+
+---
+
+## 3. Repository map
+
+```text
+cctv-stack/
+├── AGENTS.md                  # ← you are here
+├── README.md                  # human-facing entry point
+├── docs/
+│   ├── index.md               # documentation map + reading order
+│   ├── glossary.md            # shared vocabulary (read before writing)
+│   ├── prd.md                 # product requirements (input, immutable)
+│   ├── architecture/
+│   │   ├── hld.md             # high-level design
+│   │   ├── invariants.md      # hard rules that must never be broken
+│   │   ├── contracts/         # interfaces between components
+│   │   └── lld/               # low-level design, one file per component
+│   ├── adr/                   # architecture decision records
+│   ├── plans/                 # roadmap, milestones, open questions, risks
+│   └── runbooks/              # operator procedures
+├── compose.yml                # (planned) deployment boundary
+├── .env.example               # (planned) location configuration template
+└── config/  services/  data/  # (planned) see docs/architecture/contracts/on-disk-layout.md
+```
+
+Paths marked *(planned)* do not exist yet. Do not create them speculatively.
+
+---
+
+## 4. Required reading order
+
+1. [`docs/prd.md`](docs/prd.md) — what we were asked to build
+2. [`docs/glossary.md`](docs/glossary.md) — vocabulary (Frigate's terms are subtle)
+3. [`docs/architecture/hld.md`](docs/architecture/hld.md) — how the system fits together
+4. [`docs/architecture/invariants.md`](docs/architecture/invariants.md) — what must never break
+5. [`docs/architecture/contracts/`](docs/architecture/contracts/) — exact interfaces
+6. The specific `docs/architecture/lld/*.md` for the component you are touching
+7. Relevant ADRs in [`docs/adr/`](docs/adr/) — *why* it is this way
+
+---
+
+## 5. Hard invariants
+
+Full list and rationale: [`docs/architecture/invariants.md`](docs/architecture/invariants.md).
+
+Summary of the non-negotiables:
+
+| ID | Invariant |
+|---|---|
+| INV-1 | A clip is never deleted locally until its upload state is terminal-success or the operator explicitly forces it. |
+| INV-2 | No secret ever appears in the repository, in git history, in logs, or in a Docker image layer. |
+| INV-3 | Camera configuration exists in exactly one place (`config/cameras.yml`). Everything else is generated. |
+| INV-4 | Containers are disposable: all state lives under the host data directory. |
+| INV-5 | Every clip path is deterministic and derivable from its metadata. |
+| INV-6 | Every component exposes a health state; unhealthy is never silently healthy. |
+| INV-7 | Uploads are idempotent — re-running an upload never creates a duplicate cloud object. |
+| INV-8 | Upgrades never destroy state; schema changes are forward-migrated. |
+| INV-9 | A clip is materialised before Frigate's own retention can expire its source footage. |
+| INV-14 | Clip boundaries err outward; a short clip is retried and kept, never truncated or discarded. |
+
+---
+
+## 6. Conventions
+
+- **Naming:** camera names are lowercase kebab-case (`front-door`, not `FrontDoor`).
+  They appear in filesystem paths and cloud object keys, so this is load-bearing.
+- **Time:** timestamps are stored in **UTC** everywhere. Local time is a
+  presentation concern only.
+- **Configuration:** application config (same everywhere) lives in
+  `config/*.yml` with defaults. Location config (differs per site) lives in `.env`.
+  Never mix the two.
+- **Cameras are data, never code.** No `if camera == "..."` branching. Ever.
+- **Commit messages:** Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:`, `refactor:`).
+  100-character signed-off provenance (`git commit -s --signoff`).
+- **Every non-obvious decision gets an ADR.** If you cannot find one, write one
+  using [`docs/adr/0000-template.md`](docs/adr/0000-template.md).
+- **Docs are updated in the same change as the code.** A PR that changes behaviour
+  without changing docs is incomplete.
+
+---
+
+## 7. Commands
+
+Nothing is implemented yet, so these are the *intended* commands. Each is
+specified in the linked design doc.
+
+| Command | Purpose | Status | Spec |
+|---|---|---|---|
+| `./install.sh` | Validate prerequisites, generate configs, start the stack, verify health | planned | [`lld/07`](docs/architecture/lld/07-installer-and-host-profiles.md) |
+| `./update.sh` | Pull new version, migrate, recreate containers, verify | planned | [`lld/09`](docs/architecture/lld/09-upgrade-and-versioning.md) |
+| `./uninstall.sh` | Stop and remove containers, keep data | planned | [`lld/07`](docs/architecture/lld/07-installer-and-host-profiles.md) |
+| `./backup.sh` | Back up config + database + upload state | planned | [`lld/08`](docs/architecture/lld/08-backup-and-restore.md) |
+| `docker compose up -d` | Start the stack directly | planned | [`hld.md`](docs/architecture/hld.md) |
+| `scripts/doctor.sh` | Diagnose a broken installation | planned | [`runbooks/install.md`](docs/runbooks/install.md) |
+
+---
+
+## 8. How to change the design
+
+1. Check [`docs/plans/open-questions.md`](docs/plans/open-questions.md) — it may already be an open question.
+2. If it is a real decision with trade-offs, write an ADR **first**.
+3. Update the affected contract in `docs/architecture/contracts/`.
+4. Update the affected LLD.
+5. Only then write code.
+
+Do not silently diverge from a documented contract. If reality disagrees with a
+doc, the doc is a bug — fix it in the same change.
+
+---
+
+## 9. Things that will get a change rejected
+
+- A secret committed to the repository.
+- A camera name or RTSP URL hardcoded in application code.
+- A retention/cleanup path that can delete an un-uploaded clip.
+- A health check that returns `healthy` when the underlying dependency is down.
+- A new configuration key with no entry in `.env.example` and no docs.
+- A component that writes state inside its container filesystem.

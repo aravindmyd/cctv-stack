@@ -1,0 +1,93 @@
+# Frigate config for dev-synthetic. Generated-config territory in the real system
+# (INV-3); hand-written here because this stack has no cameras.yml.
+#
+# Differences from a production camera, and why:
+#
+#   * `record.continuous` is on. Continuous is the reliable way to guarantee footage
+#     exists at any instant we choose to ask, which is what makes the clip-fetch tests
+#     deterministic. A production camera would usually be `motion`.
+#   * Retention is 1 day everywhere. The fixture is a loop, so there is nothing worth
+#     keeping, and a 10-minute pattern repeated for a week is a lot of disk.
+#   * `objects.track` is `person` only, and *which fixture the publisher loops* decides
+#     whether a real object is ever found:
+#
+#       pattern.ts  (fixture-generate.sh)     a test pattern. Records, detects nothing.
+#                                             Review items come from the manual-event
+#                                             API. Precise timing, no real detection.
+#                                             This is the path CI uses.
+#       detect.ts   (fixture-from-video.sh)   real footage containing real people.
+#                                             Produces genuine detections and genuine
+#                                             `frigate/reviews` messages, and is the
+#                                             only way to ask whether a *stationary*
+#                                             subject keeps a review open.
+#
+#     Selected with `FIXTURE=<file>`; see compose.yml.
+
+mqtt:
+  enabled: true
+  host: mosquitto
+  port: 1883
+
+auth:
+  # Off so the manual-event admin API can be called without a login. Safe *only*
+  # because port 5000 is not published — see compose.yml.
+  enabled: false
+
+detectors:
+  cpu:
+    type: cpu
+    num_threads: 4
+
+record:
+  enabled: true
+  continuous:
+    days: 1
+  motion:
+    days: 1
+  alerts:
+    retain:
+      days: 1
+  detections:
+    retain:
+      days: 1
+
+snapshots:
+  enabled: false
+
+objects:
+  track:
+    - person
+
+# Left at Frigate's defaults on purpose: 40 s for alerts, 30 s for detections. The
+# experiment's whole point is to measure those, so setting them here would be
+# measuring our own input.
+# review:
+#   alerts:
+#     cutoff_time: 40
+#   detections:
+#     cutoff_time: 30
+
+cameras:
+  synthetic:
+    ffmpeg:
+      inputs:
+        # One input for both roles: the pattern is small and there is nothing to gain
+        # from a separate low-resolution detect stream here.
+        - path: rtsp://mediamtx:8554/synthetic
+          roles: [record, detect]
+    detect:
+      enabled: true
+      # Matches both fixtures' native width/height, so detection always *downscales*.
+      # Frigate resizes to this before handing the frame to the detector, and a detect
+      # resolution larger than the stream would have to upscale — which invents detail
+      # rather than preserving it, and is the case Frigate itself warns about.
+      width: 1280
+      height: 720
+      # 5 fps is plenty: a person walking is detected for many consecutive frames, and
+      # the detector is the CPU one. Raising this multiplies inference cost for no gain
+      # in whether an object is found.
+      fps: 5
+    record:
+      enabled: true
+
+version: 0.18-0

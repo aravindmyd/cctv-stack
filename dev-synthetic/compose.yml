@@ -1,0 +1,111 @@
+# dev-synthetic — a camera that does not exist, on demand
+#
+# Purpose: run the whole pipeline with no camera and no human. Part of M2
+# ("so CI can exercise the pipeline without cameras"), not a throwaway probe.
+#
+#   ffmpeg (loop a pattern)  ──RTSP──►  mediamtx  ──RTSP──►  frigate
+#                                                             │
+#                        manual events via the admin API ─────┘  → review items
+#
+# Two deliberate deviations from the production contract, both visible here rather
+# than hidden:
+#
+#   1. **Port 5000 is NOT published.** The contract (§2) says production never
+#      publishes it, because Frigate resolves requests on 5000 as anonymous-admin.
+#      Exposing it here "just for dev" is exactly how that rule erodes, so instead
+#      there is a `driver` service on the compose network that the scripts use to
+#      reach the API. Nothing is reachable from outside the network.
+#   2. **`auth.enabled: false`.** Acceptable only because of point 1 — and it is what
+#      lets the manual-event API be called without a login, which is what makes the
+#      whole thing scriptable.
+#
+# The authenticated UI is published on 8971, on loopback only, so a human can look.
+
+name: dev-synthetic
+
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2
+    restart: unless-stopped
+    # Default config allows anonymous on the local network, which is why there is no
+    # config file. This stack is not reachable off the host.
+    volumes:
+      - ./data/mosquitto:/mosquitto/data
+
+  mediamtx:
+    image: bluenviron/mediamtx:1.9.3
+    restart: unless-stopped
+    # No config file on purpose: MediaMTX's defaults already allow anonymous RTSP
+    # publish and read on 8554, and its config format moves between minor versions.
+    # Fewer files, fewer ways to fail.
+
+  publisher:
+    # The Frigate image is reused rather than adding a second ffmpeg image: whatever
+    # builds the fixture is then the same build that decodes it, so the two cannot
+    # disagree about codecs.
+    #
+    # Frigate vendors several ffmpeg builds and deliberately keeps them off PATH, at
+    # `/usr/lib/ffmpeg/<version>/bin/ffmpeg`, choosing one at runtime. The path is
+    # resolved here rather than hardcoded so a Frigate upgrade does not silently break
+    # this, which is what hardcoding `8.0` would do.
+    #
+    # Frigate publishes architecture-specific tags. `reviews.sh` exports the right one for
+    # this machine, so the same harness runs on an Apple Silicon laptop and on an amd64 CI
+    # runner; override `FRIGATE_IMAGE` to test a different build.
+    image: ${FRIGATE_IMAGE:-ghcr.io/blakeblackshear/frigate:stable-standard-arm64}
+    restart: unless-stopped
+    depends_on:
+      - mediamtx
+    entrypoint: ["/bin/sh", "-c"]
+    volumes:
+      - ./fixture:/fixture:ro
+    command:
+      # `$$FFMPEG` — the doubled `$` is Compose's escape for a literal dollar. A single
+      # `$FFMPEG` is substituted by Compose *before* the container starts, so the shell
+      # sees `exec ""` and fails with `exec: : Permission denied`. That failure is
+      # especially confusing because the log line above it prints an empty value, which
+      # looks like the `ls` failed rather than the escaping.
+      #
+      # `FIXTURE` selects which file to loop and defaults to the test pattern, so the CI
+      # and manual-event paths are unchanged. `FIXTURE=detect.ts` loops real footage with
+      # real people, which is the only way to produce genuine detections. See
+      # fixture-from-video.sh for what is in that file and why it has gaps in it.
+      - |
+        FFMPEG="$(ls -1 /usr/lib/ffmpeg/*/bin/ffmpeg | sort -V | tail -1)"
+        # Single `$` here, unlike `$$FFMPEG` above: this line reports what Compose chose,
+        # so it has to be the Compose-time value. With `$$` the shell would evaluate it
+        # inside the container, where FIXTURE is unset — and the line would cheerfully
+        # print `pattern.ts` while ffmpeg read `detect.ts`.
+        echo "publishing ${FIXTURE:-pattern.ts} with $${FFMPEG}"
+        exec "$${FFMPEG}" \
+          -hide_banner -loglevel warning \
+          -re -stream_loop -1 -i "/fixture/${FIXTURE:-pattern.ts}" \
+          -c copy -f rtsp -rtsp_transport tcp \
+          rtsp://mediamtx:8554/synthetic
+
+  frigate:
+    image: ${FRIGATE_IMAGE:-ghcr.io/blakeblackshear/frigate:stable-standard-arm64}
+    restart: unless-stopped
+    shm_size: "256mb" # Docker's 64 MB default is the classic Frigate trap
+    stop_grace_period: 30s
+    depends_on:
+      - mosquitto
+      - mediamtx
+    tmpfs:
+      - /tmp/cache
+    ports:
+      - "127.0.0.1:8971:8971" # authenticated UI, loopback only
+    volumes:
+      - ./frigate:/config
+      - ./data/media:/media/frigate
+    environment:
+      TZ: ${TZ:-Asia/Kolkata}
+
+  # On the compose network, so the scripts never need a published admin port.
+  # `docker compose run --rm driver curl …` starts it on demand.
+  driver:
+    image: curlimages/curl:8.11.1
+    profiles: ["tools"]
+    entrypoint: ["sleep", "infinity"]
+
+volumes: {}

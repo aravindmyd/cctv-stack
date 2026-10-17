@@ -1,0 +1,16 @@
+# Generated and local-only. The fixture is reproducible from `fixture-generate.sh`, so it
+# is not committed; a binary blob in git is one nobody can diff and everybody forgets.
+fixture/
+data/
+
+# `frigate/` is the container's `/config` mount, so everything in it except the file we
+# actually author is runtime state: the SQLite database and its WAL/shared-memory
+# sidecars, the model cache, and Frigate's bookkeeping files.
+#
+# Enumerating those by name was the obvious thing to do and is wrong. Frigate adds new
+# ones between releases — `.vacuum`, `.search_stats.json`, `.runtime_state.json.lock` are
+# three it grew — and a missed one is a binary blob that gets committed and never
+# noticed. Allowlisting the single file we author inverts the default, so a file Frigate
+# invents tomorrow is ignored tomorrow.
+frigate/*
+!frigate/config.yml

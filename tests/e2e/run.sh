@@ -31,7 +31,10 @@ step() { printf '\n==> %s\n' "$*"; }
 cleanup() {
   docker rm -f "$WORKER" >/dev/null 2>&1 || true
   ./dev-synthetic/reviews.sh down >/dev/null 2>&1 || true
-  rm -rf "$TMP"
+  # Never turn a passing test into a failure because temporary files could not be
+  # removed. The worker runs as the invoking user, so this should succeed; `|| true`
+  # only protects the exit status.
+  rm -rf "$TMP" 2>/dev/null || true
 }
 trap cleanup EXIT
 
@@ -59,11 +62,6 @@ fi
 
 step "Preparing a camera config and a data directory"
 mkdir -p "$TMP/config" "$TMP/data"
-# The image runs as uid 10001, while `mktemp` creates a directory owned by the runner.
-# Without this the worker starts and immediately fails to open the database — the kind of
-# permissions failure that looks like a code bug. The installer does the equivalent chown
-# on a real host.
-chmod 0777 "$TMP/data"
 cat >"$TMP/config/cameras.yml" <<'YAML'
 site:
   location: e2e
@@ -90,7 +88,13 @@ step "Starting the clip-worker on the synthetic network"
 # No CCTV_MQTT_HOST on purpose: sweep-only is the code path every deployment relies on
 # when the broker is down, and it is the one that guarantees a clip rather than merely
 # delivering it quickly.
+#
+# Run as the invoking user, not the image's uid 10001. The worker creates the clip and
+# sidecar in the bind mount; if another uid owns them, the EXIT trap cannot remove the
+# temp tree and a passing test exits non-zero. This is also what made the first CI run
+# fail after printing "e2e passed".
 docker run -d --name "$WORKER" --network "$NETWORK" \
+  --user "$(id -u):$(id -g)" \
   -e CCTV_CONFIG_DIR=/config \
   -e CCTV_DATA_DIR=/data \
   -e CCTV_DB=/data/cctv.db \

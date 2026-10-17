@@ -297,20 +297,21 @@ sequenceDiagram
     participant B2 as Backblaze B2
     participant C as cleanup
 
-    F->>M: publish frigate/events (type=end, has_clip=true)
-    M->>W: deliver event
-    W->>F: POST /api/events/{id}/retain
+    F->>M: publish frigate/reviews (type=end)
+    M->>W: deliver review item
+    W->>W: end_time non-null, severity and labels pass the per-camera filter?
+    W->>F: POST /api/events/{id}/retain — once per id in data.detections
     Note over W,F: source footage pinned — INV-9 satisfied
-    W->>W: schedule fetch at event.end + post_roll + flush_grace
+    W->>W: schedule fetch at review.end + post_roll + flush_grace
     Note over W: never fetch before the segment is flushed — INV-14
-    W->>F: GET /api/{camera}/start/{start−pre}/end/{end+post}/clip.mp4
+    W->>F: GET /api/{camera}/start/{review.start−pre}/end/{review.end+post}/clip.mp4
     F-->>W: fragmented MP4, cut from recordings by ffmpeg
     W->>W: remux (-map 0 -c copy -movflags +faststart)
     W->>W: measure coverage + gaps; retry if short, keep the best — INV-14
     W->>W: write to .tmp, fsync, atomic rename into clips/<camera>/YYYY/MM/DD/
     W->>W: sha256 + size + ffprobe duration
-    W->>DB: INSERT clip (upload_state=PENDING)
-    W->>F: DELETE /api/events/{id}/retain
+    W->>DB: INSERT clip (UNIQUE review_id, upload_state=PENDING)
+    W->>F: DELETE /api/events/{id}/retain — unpin each event
     Note over W,F: pin released after our copy is durable
 
     U->>DB: claim PENDING rows (lease)
@@ -341,15 +342,18 @@ message must never mean losing a clip.
 The **clip-worker runs a periodic sweep**:
 
 ```text
-GET /api/events?has_clip=1&after=<last_sweep_watermark>&in_progress=0
-  → for each event not present in state.db:
+GET /api/review?after=<last_sweep_watermark>&before=<now>
+  → for each review with a non-null end_time not present in state.db:
        enqueue materialisation
-  → advance watermark only after every event in the batch is durably recorded
+  → advance watermark only after every review in the batch is durably recorded
 ```
 
-The watermark is stored in the database, so a restart resumes rather than redoing.
-The sweep is the correctness mechanism; MQTT is the latency optimisation. Same
-pattern applies to Frigate's own state being unavailable: we simply sweep later.
+The watermark is stored in the database, so a restart resumes rather than redoing. This
+sweep also covers the case Frigate creates for us: its review maintainer clears any
+review still open at its own start-up, so a review interrupted by a Frigate restart can
+never deliver a `type: end`. The sweep is the correctness mechanism; MQTT is the latency
+optimisation. Same pattern applies to Frigate's own state being unavailable: we simply
+sweep later.
 
 ### 6.3 Why uploads do not follow "file appears → upload → delete"
 

@@ -19,15 +19,31 @@ The map of everything we know and everything we have decided.
 |---|---|
 | Product requirements | ✅ Complete — [`prd.md`](prd.md) |
 | Architecture and design | 📐 **Written, awaiting owner review** |
-| Implementation | 🚧 **Not started — blocked on design approval** |
+| Implementation | ✅ **M1–M3 built, M4 J1 built** — detect → materialise → durable upload → local retention |
+| Client-site packaging | 📐 **Proposed** — [`plans/packaging.md`](plans/packaging.md) |
 
-The design set is complete: 2 entry points, 1 HLD, 1 invariant list, 6 contracts,
-10 LLDs, 15 ADRs, 5 planning documents, and 5 runbooks. Nothing has been implemented.
+The design set is complete: 4 entry points, 1 HLD, 1 invariant list, 6 contracts,
+10 LLDs, 20 ADRs, 8 planning documents, and 6 runbooks.
 
-The decisions that need an owner answer before implementation starts are in
-[`plans/open-questions.md`](plans/open-questions.md) — OQ-1 (name and hosting),
-OQ-2 (licence), OQ-3 (monitoring tool), and OQ-10 (recording retention budget) block
-milestones directly.
+**What is built** (`src/cctv/`, entry points `cctv-clip-worker`, `cctv-config`,
+`cctv-uploader`, `cctv-cleanup`): a review becomes a file at the canonical path, the
+uploader pushes it to Backblaze B2 exactly once through a storage adapter, and local
+retention deletes a clip only after its upload is terminal-success. Each service exposes
+`/health` and `/metrics` per
+[`service-contracts.md`](architecture/contracts/service-contracts.md).
+
+**What is not built:** M4's cloud retention, reconciliation, housekeeping and force-delete;
+the aggregate `/status` page and alerting (M5); the installer (M6); and
+backup/restore/upgrade (M7). Nothing is deleted without a successful upload, so
+[INV-1](architecture/invariants.md) holds — see
+[`plans/backlog.md`](plans/backlog.md) for exactly what is deferred and why.
+
+[`../spike/`](../spike/) is still a throwaway verification harness for M1, not product code,
+and goes once M1's `VERIFY` items are replaced with measurements.
+
+Only two open questions touch M1, and both are answered by running the probe: **OQ-10**
+(recording retention budget) and **OQ-16** (pre/post-roll defaults). The rest — name
+(OQ-1), licence (OQ-2), monitoring tool (OQ-3) — block later milestones only.
 
 ---
 
@@ -48,8 +64,9 @@ milestones directly.
 Same as above, then:
 
 8. [`plans/roadmap.md`](plans/roadmap.md) — where we are going
-9. [`plans/open-questions.md`](plans/open-questions.md) — where you can help
-10. [`runbooks/`](runbooks/) — what operating this actually looks like
+9. [`plans/backlog.md`](plans/backlog.md) — what is deliberately not built yet, and why
+10. [`plans/open-questions.md`](plans/open-questions.md) — where you can help
+11. [`runbooks/`](runbooks/) — what operating this actually looks like
 
 ### If you are the operator
 
@@ -71,6 +88,8 @@ Same as above, then:
 | [`prd.md`](prd.md) | Original product requirements, authored by the owner | ✅ input |
 | [`plans/roadmap.md`](plans/roadmap.md) | Versioned delivery plan | 📐 |
 | [`plans/milestones.md`](plans/milestones.md) | Milestone definitions and exit criteria | 📐 |
+| [`plans/backlog.md`](plans/backlog.md) | Deferred work, and the findings behind it | ✅ |
+| [`plans/packaging.md`](plans/packaging.md) | Release artefacts, client-site install, air-gapped delivery | 📐 |
 
 ### Architecture
 
@@ -120,6 +139,11 @@ Same as above, then:
 | [`adr/0013-compose-profiles.md`](adr/0013-compose-profiles.md) | One compose file with profiles, not many files | 📐 |
 | [`adr/0014-pinned-image-digests.md`](adr/0014-pinned-image-digests.md) | Pin image digests, not tags | 📐 |
 | [`adr/0015-clip-boundaries-and-padding.md`](adr/0015-clip-boundaries-and-padding.md) | Clip boundaries err outward; pre-roll, post-roll, and the flush-aware fetch | 📐 |
+| [`adr/0016-clip-per-review-item.md`](adr/0016-clip-per-review-item.md) | One canonical clip per Frigate **review item**, not per event | 📐 |
+| [`adr/0017-time-handling.md`](adr/0017-time-handling.md) | Time is stored as a timezone-free instant; rendered in the site timezone | 📐 |
+| [`adr/0018-uv-as-toolchain.md`](adr/0018-uv-as-toolchain.md) | uv for development, CI and the build stage — never at runtime | 🛠 |
+| [`adr/0019-rustfs-as-s3-test-double.md`](adr/0019-rustfs-as-s3-test-double.md) | RustFS as the S3 test double for integration testing | 🛠 |
+| [`adr/0020-release-artifacts-and-delivery-modes.md`](adr/0020-release-artifacts-and-delivery-modes.md) | A signed, digest-pinned release bundle; connected, mirrored and air-gapped delivery | 📐 |
 
 ### Planning
 
@@ -133,7 +157,7 @@ Same as above, then:
 
 | Doc | Purpose | Status |
 |---|---|---|
-| [`runbooks/install.md`](runbooks/install.md) | Install and verify | � |
+| [`runbooks/install.md`](runbooks/install.md) | Install and verify | 📐 |
 | [`runbooks/add-a-camera.md`](runbooks/add-a-camera.md) | Add or change a camera | 📐 |
 | [`runbooks/recover-failed-uploads.md`](runbooks/recover-failed-uploads.md) | Diagnose and drain a stuck upload queue | 📐 |
 | [`runbooks/rotate-credentials.md`](runbooks/rotate-credentials.md) | B2 keys, camera passwords, Frigate auth | 📐 |

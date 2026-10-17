@@ -20,12 +20,12 @@ stops being read.
 | OQ-8 | Back up snapshots alongside clips | Not in v1 | M3 |
 | OQ-9 | Run the uploader in local-only deployments | Yes, idle | M6 |
 | OQ-10 | Frigate recording retention defaults | As specified, with a warning | M1 |
-| OQ-11 | Clip filename timezone: local or UTC | Local | M2 |
 | OQ-12 | Official support for Windows | Best-effort, documented | M6 |
 | OQ-13 | Protect the status page with a password | No by default | M5 |
 | OQ-14 | Per-event notifications ("person at the front door") | Not in v1 | M5 |
 | OQ-15 | Reference hardware recommendation | Publish one | M8 |
 | OQ-16 | Default pre-roll and post-roll values | 5 s / 10 s | M1 |
+| PQ-1…PQ-6 | Packaging: registry, signing identity, offline archive size, root install, artefact retention, site networking | See [`packaging.md` §11](packaging.md#11-open-questions) | M6 |
 
 ---
 
@@ -287,31 +287,6 @@ continuous recordings. These are different things at very different costs (66 GB
 operator will reasonably expect 90 days of continuous video.
 
 **Decide by:** M1.
-
----
-
-## OQ-11 — Clip filename timezone: local or UTC?
-
-**Recommendation: local time, with UTC always stored in the database.**
-
-Frigate speaks UTC everywhere. The operator browses directories in local time. These
-disagree for most of the world.
-
-| | Local filenames | UTC filenames |
-|---|---|---|
-| Human browsing | Natural: "the clip from 6pm" is where you expect | Confusing: 6pm appears as 08:00 |
-| DST ambiguity | Collisions at fallback, handled by a deterministic suffix | None |
-| Alignment with Frigate | Requires conversion | None |
-| Debugging | Requires knowing the configured timezone | Unambiguous |
-
-**Recommendation: local**, because the directory tree is the primary browsing interface
-for a human, and the DST collision is handled deterministically. UTC is always
-recoverable from the database and the sidecar.
-
-This is recorded in [ADR-0006](../adr/0006-canonical-clip-layout.md); confirming it here
-because the DST edge case is the kind of thing worth an explicit "yes, I accept that".
-
-**Decide by:** M2.
 
 ---
 

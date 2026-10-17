@@ -140,12 +140,12 @@ Every validation error is a structured object:
 
 ```python
 {
-  "file": "config/cameras.yml",
-  "line": 31,
-  "path": "cameras.front-door.rtsp.main",
-  "code": "E_RTSP_SCHEME",
-  "message": "unsupported scheme \"http\"",
-  "fix": "use rtsp:// or rtsps://",
+    "file": "config/cameras.yml",
+    "line": 31,
+    "path": "cameras.front-door.rtsp.main",
+    "code": "E_RTSP_SCHEME",
+    "message": 'unsupported scheme "http"',
+    "fix": "use rtsp:// or rtsps://",
 }
 ```
 

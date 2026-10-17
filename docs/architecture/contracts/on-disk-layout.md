@@ -70,6 +70,14 @@ ${DATA_DIR}/                          default /opt/cctv
     └── cctv-state-YYYYMMDDTHHMMSSZ.tar.gz
 ```
 
+> **Implementation note (v0.3.0).** `state.db` is currently at `${DATA_DIR}/cctv.db`
+> (`CCTV_DB`, default `<data_dir>/cctv.db`). The move into `data/state/` belongs with the
+> installer (`lld/07`, M6): it is a file move plus one environment variable, not a code
+> change, and both the clip-worker and the uploader name `CCTV_DB` explicitly in
+> `compose.yml` so they cannot drift apart in the meantime. `data/state/db-backups/` and
+> `data/state/tmp/` do not exist yet either — `migrate` only writes a backup when a
+> `backup_dir` is passed, and the atomic-write staging directory lives beside its target.
+
 ### 2.1 Why `data/clips/` and `data/media/` are separate subtrees
 
 `data/clips/` is **ours**; `data/media/` is **Frigate's**. They are never mounted

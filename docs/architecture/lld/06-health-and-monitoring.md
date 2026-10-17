@@ -121,7 +121,7 @@ first matching condition wins:
 def answer(s: StatusSummary) -> str:
     if s.cameras_offline_beyond_grace:
         names = ", ".join(s.cameras_offline_beyond_grace)
-        return f"Recording is impacted. {names} {'is' if len==1 else 'are'} offline."
+        return f"Recording is impacted. {names} {'is' if len == 1 else 'are'} offline."
     if s.disk_critical:
         return f"Recording will stop soon. Only {s.free_human} of disk remains."
     if s.clips_failing:

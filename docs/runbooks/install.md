@@ -93,7 +93,7 @@ The installer prints URLs. Bookmark all three:
 
 | URL | What it is |
 |---|---|
-| `http://<host>:8971` | **Frigate** — live view, playback, review, exports |
+| `https://<host>:8971` | **Frigate** — live view, playback, review, exports. HTTPS only, with a self-signed certificate Frigate generates on first start; accept the one-time browser warning. Plain `http://` on this port returns `400` from nginx |
 | `http://<host>:3001` | **Monitoring** — history, and where notifications are configured |
 | `http://<host>:8080/status` | **Status** — the one-screen answer to "is it working?" |
 

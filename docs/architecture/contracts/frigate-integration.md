@@ -30,25 +30,82 @@ is a bug. Add it here first, with the version it was verified against.
 
 ## 2. Authentication
 
-Frigate's API is role- and camera-scoped (`require_role(["admin"])`,
-`require_camera_access`, `allow_any_authenticated`).
+**Resolved during M1 research.** Frigate exposes two ports with deliberately different
+security postures:
 
-| Requirement | Detail |
+| Port | Posture | Upstream's stated intent |
+|---|---|---|
+| `8971` | Authenticated, **HTTPS only** — JWT cookie or `Authorization: Bearer` | The UI, and reverse proxies |
+| `5000` | **Unauthenticated, and resolved as `anonymous` with role `admin`** | *"Intended to be used within the docker network for services that integrate with Frigate and do not support authentication."* |
+
+> **Measured 2026-09-30 against `0.18.0-77a66e7`.** Frigate serves `8971` over TLS using a
+> self-signed certificate it generates on first start (`tls.enabled` defaults to `true`).
+> A plain-HTTP request to that port is answered by nginx with
+> `400 The plain HTTP request was sent to HTTPS port` — it never reaches Frigate, so it is
+> **not** an auth failure and must not be diagnosed as one. Operator-facing text says
+> `https://`.
+
+Frigate's auth middleware resolves a request arriving on the internal port to
+`remote-user: anonymous`, `remote-role: admin`, keyed off an `x-server-port` header that
+its nginx sets and that cannot be spoofed from outside the container. The port is
+deliberately fixed at container start rather than read from live config, so an in-memory
+config change cannot move which port is trusted.
+
+### Decision: our services use the internal port, not credentials
+
+| | Internal port `5000` **(chosen)** | Authenticated `8971` + JWT |
+|---|---|---|
+| Credentials to manage | **None** | Service user, password, rotation, JWT secret |
+| Token lifecycle | None | `session_length` default 24 h; `refresh_time` default 30 min |
+| Failure modes | Network only | Expiry, rotation, login rate limiting, restart invalidating tokens |
+| Blast radius | Any container on the compose network has Frigate admin | Only a credential holder does |
+| Upstream intent | Documented explicitly for this purpose | For humans and reverse proxies |
+
+**We choose the internal port.** Blast radius is the only argument against it, and it
+does not bite: every service in this stack already has read access to `data/clips/` and
+`state.db`, so a compromised container could read the footage directly. An extra
+credential would not create a real boundary, while token lifecycle management would be a
+recurring operational cost and a new class of silent failure.
+
+### The invariant this creates
+
+> **Port `5000` is never published to the host.** It is reachable only on the internal
+> compose network.
+
+This replaces the earlier rule that our services must not use port 5000. The real
+constraint was never *"do not use the internal port"* — it is **"never expose the
+internal port"**, which is exactly what upstream means by *"access to this port should
+be limited"*.
+
+- The installer fails validation if the compose file publishes `5000`
+- Only `8971`, authenticated, is published — for humans
+- A test asserts that no host port maps to container `5000`
+
+### Consequences
+
+| Concern | Detail |
 |---|---|
-| Service identity | A dedicated Frigate user created by the installer, never the operator's account |
-| Required role | `admin` — we call `retain`/`unretain`, which are admin-scoped |
-| Credential storage | `.env` only, `chmod 600`, never passed on a command line |
-| Transport | Internal compose network over plain HTTP; the request never leaves the host |
-| Failure mode | `401`/`403` → surface the exact upstream message, stop retrying, alert. **Never** silently degrade to "no clips" |
+| Human access | Unchanged: `8971`, authenticated, cookie-based |
+| Installer | Does not create a service user at all. Simpler, and one fewer secret ([INV-2](../invariants.md)) |
+| Operator password | Still set once for the UI. `auth.reset_admin_password: true` regenerates a forgotten one and prints it to the log |
+| Auth still enabled | `auth.enabled: true` — the internal port is exempt, but the published UI must not be open |
+| Hardened deployments | `FRIGATE_API_BASE` is configurable, so an operator wanting defence in depth can point at an authenticated endpoint instead. One config value, no code change |
+| Failure mode | `401`/`403` from the internal port means the base URL is misconfigured, not that a token expired — a clearer signal |
+| Never silently degrade | An auth error must still surface the exact upstream message, stop retrying, and alert. **Never degrade to "no clips"** |
 
-> **VERIFY:** how a long-lived machine credential is obtained in the pinned Frigate
-> version. Preferred order: (a) a static API key if the version supports one,
-> (b) a long-lived JWT obtained via the login endpoint and refreshed by
-> `update.sh`, (c) disabling auth — **rejected**, it would require publishing the
-> unauthenticated port 5000.
-
-Unauthenticated Frigate API on port `5000` is **never** reachable from our
-services. The installer fails validation if the compose file publishes it.
+> **RESOLVED (M1).** Verified against Frigate `0.18.0-77a66e7`: `/config`, `/stats` and
+> `/events` all return `200` with **no credentials**, and `POST /api/auth` with
+> `x-server-port: 5000` returns `202`. Services therefore need no credentials.
+>
+> **One correction to the reasoning above.** `/api/auth` is the wrong probe: it reports
+> *login state* and correctly returns `401` to an anonymous caller, which is not an
+> authorisation failure. The meaningful test is whether the endpoints the pipeline uses
+> work, and they do. The `x-server-port` trust mechanism exists and is confirmed.
+>
+> On this host Frigate's nginx does **not** appear to set `x-server-port` on requests to
+> `localhost:5000` from inside the container, yet the pipeline endpoints still return
+> `200`. The effect we depend on holds; the exact mechanism is less certain than the
+> source suggested. Re-verify if an upgrade changes any endpoint to `401`/`403`.
 
 ---
 
@@ -61,8 +118,8 @@ Topic prefix: `frigate` (Frigate's default; we do not change it).
 
 | Topic | QoS | Consumer | Purpose |
 |---|---|---|---|
-| `frigate/events` | 1 | clip-worker | Primary trigger for materialisation |
-| `frigate/reviews` | 1 | (future) | Review-level grouping — not used in v1 |
+| `frigate/reviews` | 1 | clip-worker | **Primary trigger.** A canonical clip is one review item, not one event ([ADR-0016](../../adr/0016-clip-per-review-item.md)) |
+| `frigate/events` | 1 | clip-worker | Metadata only — the event ids inside a review, stored in the clip's sidecar |
 | `frigate/available` | 1 (retained) | status-collector | Frigate liveness |
 | `frigate/stats` | 0 | status-collector | Detection FPS, inference speed, camera state |
 | `frigate/<camera>/status/<role>` | 1 | status-collector | Per-camera per-role `online` / `offline` / `disabled` |
@@ -129,6 +186,278 @@ Delivery is at-most-once from our perspective: a broker restart, a network blip,
 or clip-worker downtime drops messages. Losing a message must never lose a clip.
 The reconciliation sweep (§4.3) is the correctness mechanism.
 
+**Ordering note.** We still consume `frigate/events`, but only for metadata: the event
+ids listed in a review's `data.detections` are written into the clip's sidecar, which
+preserves 1:1 event searchability even though the file is per-visit. Events are **not**
+a trigger — see §3.4.
+
+---
+
+### 3.4 Review items are the primary trigger
+
+**A canonical clip is one Frigate review item, not one event** ([ADR-0016](../../adr/0016-clip-per-review-item.md)).
+Frigate already groups events into activity periods; we consume that grouping rather than
+implementing our own visit-window logic.
+
+A single visitor produces several tracked objects — approaching, waiting, leaving — and
+therefore several events. Those are one *visit*: the thing a human wants to watch.
+
+```jsonc
+{
+  "type": "new" | "update" | "end",
+  "before": { /* previous state */ },
+  "after": {
+    "id": "1718987129.308396-fqk5ka",     // review id — the dedup key
+    "camera": "front-door",
+    "start_time": 1718987129.308396,
+    "end_time": 1718987174.123456,          // null while the review is still open
+    "severity": "alert",                    // or "detection"
+    "thumb_path": "/media/frigate/clips/review/thumb-front-door-….webp",
+    "data": {
+      "detections": ["1718987128.947436-g92ztx"],   // the events inside this review
+      "objects": ["person", "car"],
+      "sub_labels": [],
+      "zones": [],
+      "audio": []
+    }
+  }
+}
+```
+
+**Trigger condition** — evaluated on **every** message regardless of `type`, for the same
+reason as §3.2: a broker restart can eat the final `end`.
+
+```python
+should_materialise = (
+    after.end_time is not None  # review is final
+    and after.camera in known_cameras
+    and after.severity in camera.clip.severities  # default: [alert, detection]
+    and any(o in camera.clip.objects for o in after.data.objects)
+    and not db.exists(review_id=after.id)  # dedup on the review id
+)
+```
+
+| Field | Use |
+|---|---|
+| `id` | Dedup key. `UNIQUE(review_id)` on `clips` |
+| `start_time` | **Basis for the clip path** ([ADR-0006](../../adr/0006-canonical-clip-layout.md)), and the range start |
+| `end_time` | Range end. Null means the review is still open — do not act |
+| `severity` | `alert` \| `detection`. Per-camera filter |
+| `data.detections` | Event ids, stored in the sidecar |
+| `data.objects` | Per-camera label filter |
+
+**Unknown fields and unknown cameras must not break parsing**, exactly as in §3.2. A
+review for a camera not in `cameras.yml` is logged at `WARNING` and dropped.
+
+**Why the range endpoint and not `/api/review/{id}/clip.mp4`:** the review endpoint takes
+a symmetric `padding`, so asymmetric pre-roll and post-roll would inflate every clip. We
+read `start_time`/`end_time` from the review and request the exact range ourselves — the
+same reasoning as §4.2.
+
+### 3.5 The review lifecycle — `cutoff_time` is the visit threshold
+
+**Frigate, not us, decides where one visit ends and the next begins.** The rule is in
+`frigate/review/maintainer.py`, and it is a quiet-period timer:
+
+```python
+# an alert review closes when
+frame_time > segment.last_alert_time + config.review.alerts.cutoff_time
+# a detection review closes when
+segment.severity == detection and frame_time > segment.last_detection_time
+    + config.review.detections.cutoff_time
+```
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `review.alerts.cutoff_time` | **40 s** | Quiet period before an **alert** review is closed |
+| `review.detections.cutoff_time` | **30 s** | Quiet period before a **detection** review is closed |
+
+Consequences we depend on:
+
+1. **"Leaves and comes back within the threshold" is one clip.** A person who walks out
+   of frame and returns inside `cutoff_time` never closes the review, so the return is
+   part of the same visit and therefore the same clip. **We implement no merging logic of
+   our own** — this is the whole reason we consume reviews instead of raw events.
+2. **Reviews for one camera cannot overlap, and are contiguous.** When an alert review
+   ends while detections are still active, Frigate starts the next segment at exactly the
+   previous one's `end_time`. Two consecutive clips therefore share a boundary timestamp:
+   no gap, no double-count.
+3. **The threshold is a latency cost, not only a boundary.** We cannot materialise a clip
+   until the review closes (`end_time` non-null), so `cutoff_time` puts a floor of
+   `cutoff_time + post_roll_s + segment_flush_grace_s` — about 65 s by default — on clip
+   latency. Raising `cutoff_time` so a longer return-window stays "one clip" delays every
+   clip by the same amount.
+4. **An open review is cleared on Frigate restart.** The maintainer sends
+   `CLEAR_ONGOING_REVIEW_SEGMENTS` at start-up, so a review that was open when Frigate
+   restarted may never receive a `type: end`. This is why §3.4 evaluates the trigger on
+   **every** message and why §6.2 of the HLD keeps a sweep.
+5. **Frigate pads its own export by ±4 s.** The UI calls the export endpoint with
+   `REVIEW_PADDING = 4` on both edges. We deliberately do not reuse it — our pre-roll and
+   post-roll are asymmetric and operator-configured
+   ([ADR-0015](../../adr/0015-clip-boundaries-and-padding.md)).
+6. **A review can have no events.** An audio-only review has `data.detections: []` and
+   populates `data.audio` instead. Nothing can be pinned for it with `retain_indefinitely`,
+   and the default `clip.objects` filter drops it.
+7. **`end_time` is the last *activity* time, not the time the review closed.** When a
+   segment ends, `get_data(ended=True)` sets `end_time` to `last_alert_time` — not
+   `frame_time`, and not `last_alert_time + cutoff_time`:
+
+   ```python
+   if ended:
+       end_time = self.last_alert_time if severity is alert else self.last_detection_time
+   ```
+
+   A 30 s visit with a 40 s alert cutoff therefore *closes* 70 s after it began but
+   reports an `end_time` 30 s after it began. Two things follow, and both are load-bearing:
+
+   - `end_time - start_time` is the **activity span**, which is what a clip boundary ought
+     to be. Cutting to `end_time + post_roll_s` captures the visit exactly, so
+     [ADR-0015](../../adr/0015-clip-boundaries-and-padding.md) is correct by construction
+     rather than by luck.
+   - The `end_time` we act on is already ~`cutoff_time` in the **past** by the time we
+     learn it. The latency floor in item 3 is unchanged, but the footage we then fetch
+     ends up to 40 s behind the moment we start fetching.
+
+Because `cutoff_time` defines the clip boundary, it is **projected into the generated
+Frigate config** from `cameras.yml` rather than filtered at our layer — unlike
+`clip.severities` and `clip.objects`, which are ours alone because changing them does not
+change Frigate's grouping. See [`cameras-config-schema.md`](cameras-config-schema.md) §4.
+
+> **MEASURED 2026-09-13** — Frigate 0.18.0-77a66e7, `TZ=Asia/Kolkata`, default cutoffs,
+> driven through the manual-event API so the review maintainer ran its normal path. Method
+> and limitations: [`dev-synthetic/`](../../../dev-synthetic/README.md).
+>
+> | Question | Result |
+> |---|---|
+> | Returning **inside** the cutoff stays one review | **Confirmed.** Two visits 25 s apart merged into one review of 97 s containing **three** events |
+> | Returning **after** the cutoff gives two reviews | **Confirmed.** Two visits 75 s apart produced two reviews, 15 s each |
+> | Reviews are contiguous and never overlap | **Confirmed** across five consecutive reviews |
+> | The alert cutoff is **40 s** | **Bracketed, and it fits.** Merged at 25 s and 35 s; split at 45 s and 75 s. So the cutoff lies in (35, 45], which is consistent with the source's `default=40` |
+>
+> **A Frigate restart silently truncates a visit, and announces nothing.** This is the
+> most consequential result here. Two runs, both restarting Frigate mid-visit:
+>
+> | Run | Event | Review | `frigate/reviews` |
+> |---|---|---|---|
+> | 1 | `00:59:12 → 00:59:42` (30 s) | `00:59:17 → 00:59:25` (8 s) | — |
+> | 2 | `01:00:15 → 01:00:44` (29 s) | `01:00:20 → **01:00:20**` (0 s) | one `update`, **no `new`, no `end`** |
+>
+> In both, the review closed while its event was still live, so the visit lost a third to
+> a half of its footage. In run 2 the review has **equal start and end times**, and the
+> database records an `end_time` while **no `end` was ever published on MQTT** — the
+> subscriber was connected to mosquitto, which never restarted, so it would have seen
+> anything Frigate sent.
+>
+> The mechanism matches the source: the maintainer sends `CLEAR_ONGOING_REVIEW_SEGMENTS`
+> at start-up, which writes the segment closed *without* going through
+> `_publish_segment_end`. That is why §3.4 evaluates the trigger on **every** message
+> rather than only on `type: end`, and why the periodic sweep in HLD §6.2 is a correctness
+> mechanism rather than a nicety. A deployment relying on `end` alone would lose that clip
+> entirely, and the loss would be silent.
+>
+> **One caveat on the message types — since resolved.** Run 2 showed an `update` but no
+> `new`. That is expected for the manual-event path, which assigns
+> `active_review_segments[camera]` directly instead of calling `check_if_new_segment`, and
+> only that path publishes `new`. **Live detections do publish it** — confirmed in the
+> second measurement below. The missing `new` was an artefact of the method, not a
+> property of reviews.
+>
+> **One design-relevant observation.** In three of three samples, `review.start_time`
+> landed **~5 s after** the triggering event's own `start_time` (event 00:37:33 → review
+> 00:37:38; event 00:41:46 → review 00:41:51). Since the clip path is named from
+> `review.start_time` and the fetch begins at `review.start_time − pre_roll_s`, a 5 s lag
+> is covered by the 5 s pre-roll **only just**. A camera configured with `pre_roll_s: 0`
+> would begin every clip about 5 s *after* the subject first appeared. Still not measured
+> against live detections.
+
+#### Second measurement — live detections, 2026-09-13
+
+The first measurement drove everything through the manual-event API, which cannot answer
+the stationary-subject question and could not confirm the message types. The second run
+replaces the test pattern with **real footage containing real people**
+([`dev-synthetic/fixture-from-video.sh`](../../../dev-synthetic/fixture-from-video.sh)), so
+Frigate runs its own path end to end: ffmpeg → detector → events → review maintainer. No
+API is involved at any point.
+
+| Question | Result |
+|---|---|
+| Real detections produce review items | **Confirmed.** 13 events on `frigate/events`, all `label: person`, producing 5 review items, all `severity: alert` |
+| `frigate/reviews` publishes `new` | **Confirmed.** `{"type": "new", "before": …, "after": {… "end_time": null}}` |
+| `frigate/reviews` publishes `end` | **Confirmed** — and `end` is the **only** message type that carries a non-null `end_time`. `new` and `update` both send it as `null` |
+| Reviews close in a quiet gap | **Confirmed.** A 50 s quiet segment closes every review. Consecutive reviews were separated by 55–57 s end-to-start and never merged |
+| `end_time` equals the close time | **Falsified.** See item 7 — `end_time` is the last activity time |
+| A `person` review is an *alert*, not a detection | **Confirmed.** `review.alerts.labels` defaults to `["person", "car"]` (`DEFAULT_ALERT_OBJECTS` in `frigate/config/camera/review.py`), so no zone configuration is needed for a person to become an alert |
+
+Observed review durations were 28.8 s, 4.6 s, 25.4 s and 4.6 s — alternating, because the
+fixture alternates a 30 s indoor clip with a 12 s outdoor one and the people are only
+inside the frame for part of the shorter clip. Those are **activity spans**, per item 7,
+not time-to-close.
+
+> **How review data actually reaches MQTT.** Worth naming, because it is not obvious and
+> it is easy to conclude the opposite. `maintainer.py` sends the review JSON to the
+> internal ZMQ requestor with `send_data("reviews", …)`, and `Dispatcher._receive` has a
+> **fall-through** for topics it has no handler for:
+>
+> ```python
+> elif topic in topic_handlers:
+>     return topic_handlers[topic]()
+> else:
+>     self.publish(topic, payload, retain=False)   # → MQTT frigate/reviews
+> ```
+>
+> `Dispatcher.publish` fans out to every communicator, so the unrecognised `"reviews"`
+> topic lands on MQTT with `topic_prefix` prepended. The neighbouring
+> `handle_upsert_review_segment` — the function that actually persists the review — does
+> **not** publish anything, so reading that function alone suggests reviews never reach
+> MQTT at all. They do. This cost a wrong conclusion once; the full-topic capture is what
+> caught it.
+
+**The payload shape, checked against our parser.** Every field `reviews.parse_review`
+reads was present with the expected type, so §3.4's parser is verified rather than assumed:
+
+```jsonc
+{
+  "type": "new",                 // or "update", or "end"
+  "before": { …segment as it was… },
+  "after": {
+    "id": "1789304550.318037-z09b2n",
+    "camera": "synthetic",
+    "start_time": 1789304550.318037,
+    "end_time": null,           // non-null only on "end"
+    "severity": "alert",
+    "thumb_path": "/media/frigate/clips/review/thumb-synthetic-….webp",
+    "data": {
+      "detections": ["1789304550.124755-91x3l8", "…"],   // event ids
+      "objects": ["person"],
+      "verified_objects": [],
+      "sub_labels": [],
+      "zones": [],
+      "audio": [],
+      "thumb_time": 1789304550.605706,
+      "metadata": null
+    }
+  }
+}
+```
+
+`verified_objects`, `thumb_time` and `metadata` are fields our parser ignores — the
+unknown-key tolerance in §3.4 earning its place rather than being hypothetical.
+
+> **Still unmeasured:**
+>
+> - **How long a stationary subject keeps a review open.** Still the one open question, and
+>   it matters because it sets the maximum length of a single clip. Note that
+>   `detect.stationary.interval` (default **50** frames) throttles re-detection of a
+>   stationary object, so it is a lever on the answer, not merely a setting.
+> - Whether a review is ever reopened after `end`.
+> - The ~5 s `start_time` lag above, against live detections.
+> - `POST`/`DELETE /api/events/{id}/retain` — both exist and are admin-scoped in the
+>   source, but neither was exercised.
+>
+> **Bonus, from the same run:** Frigate's database is at **`/config/frigate.db`**, and it
+> has a `recordings` table. That is where [ADR-0015](../../adr/0015-clip-boundaries-and-padding.md)'s
+> preferred replacement for the broken gap detector should start.
+
 ---
 
 ## 4. HTTP endpoints we call
@@ -143,7 +472,7 @@ DELETE /api/events/{event_id}/retain     → {"success": true, "message": "..."}
 | | |
 |---|---|
 | Purpose | Protect an event's source footage from Frigate's own retention until we hold our own copy ([INV-9](../invariants.md)) |
-| Role | `admin` |
+| Auth | Internal port (§2) — Frigate resolves it as `admin`, which this endpoint requires |
 | When | Pin: immediately on enqueue. Unpin: after the canonical clip is durably written |
 | Idempotency | Must be treated as idempotent by us; a repeated pin is not an error |
 | Failure to pin | **Fatal for that event.** Do not download without a successful pin. Log, record `PIN_FAILED`, alert — because the clip may be lost |
@@ -169,8 +498,8 @@ event-scoped one.** The operator needs footage before `event.start_time` and aft
 The range we request is:
 
 ```text
-start_ts = event.start_time − clip.pre_roll_s
-end_ts   = event.end_time   + clip.post_roll_s
+start_ts = review.start_time − clip.pre_roll_s
+end_ts   = review.end_time   + clip.post_roll_s
 ```
 
 | | |
@@ -212,7 +541,7 @@ anything is missing.
 The clip-worker schedules every fetch at:
 
 ```text
-fetch_not_before = event.end_time + post_roll_s + segment_flush_grace_s
+fetch_not_before = review.end_time + post_roll_s + segment_flush_grace_s
 ```
 
 and does not touch the item before it is due. A `400 "No recordings found"` is
@@ -366,7 +695,7 @@ synthetic RTSP source for real cameras, letting CI exercise the full pipeline:
 ```text
 synthetic RTSP source → frigate → frigate/events → clip-worker → canonical clip
                                                         ↓
-                                                  uploader → MinIO (B2-compatible test double)
+                                                  uploader → RustFS (B2-compatible test double)
 ```
 
 Requirements this creates:
@@ -386,19 +715,26 @@ recorded here, because a wrong assumption here invalidates the LLD.
 
 - [ ] `POST` / `DELETE /api/events/{id}/retain` exist, are admin-scoped, and behave idempotently
 - [ ] `GET /api/events/{id}/clip.mp4` returns a usable stream for a completed event
-- [ ] **`GET /api/{camera}/start/{start}/end/{end}/clip.mp4` accepts arbitrary asymmetric ranges** and returns the expected footage
-- [ ] The range endpoint returns `400 "No recordings found"` (not `404`) when there is no footage — confirming the retryable classification
-- [ ] Measure the **segment flush delay**: how long after `event.end_time` before the final segment is retrievable, and whether an immediate fetch is truncated
-- [ ] Measure the **achieved cut precision** with `-c copy`: does the result err outward or inward, and by how much
-- [ ] Confirm **audio survives** the cut and the remux on a camera with a microphone
-- [ ] Confirm the **keyframe/GOP interval** so `max_gap_s` can be set above it without false gap positives
+- [x] **`GET /api/{camera}/start/{start}/end/{end}/clip.mp4` accepts arbitrary asymmetric ranges** and returns the expected footage
+- [x] The range endpoint returns `400 "No recordings found"` (not `404`) when there is no footage — confirming the retryable classification
+- [x] Segment flush delay measured → **10 s**; truncation **reproduced** at 5 of 6 shorter lags
+- [x] Cut precision measured → errs **outward**, mean **+1.88 s** per 10 s
+- [x] Audio survives the cut and the remux → **AAC**, browser-playable
+- [x] Keyframe/GOP interval → **2.55 s**. **But packet gaps are not a usable hole signal** — see the `max_gap_s` correction in [`lld/02`](../lld/02-clip-worker.md#9-configuration)
 - [ ] The downloaded stream is playable by the clients we care about **after** our remux step
 - [ ] `GET /api/events?has_clip=1&in_progress=0&after=…&sort=date_asc` supports the parameters we rely on
 - [ ] The `sort` value for ascending-by-start-time is correct
 - [ ] `frigate/events` payload matches §3.2 for `new`, `update`, and `end`
 - [ ] `frigate/<camera>/status/<role>` values match `online` / `offline` / `disabled`
-- [ ] `/api/stats` contains the fields §4.4 requires
-- [ ] The auth mechanism in §2 exists and can be provisioned non-interactively
+- [x] `/api/stats` contains the fields §4.4 requires
+- [x] **The pipeline's endpoints return `200` with no credentials** — §2 confirmed (see the correction there)
+- [x] Publishing port `5000` is genuinely unnecessary for our services to work
 - [ ] Port `5000` really is unauthenticated (confirming why it must never be published)
 - [ ] Frigate's recording retention defaults are configurable as §5.2 assumes
 - [ ] The image digest for the host profile's variant is available
+
+**Still outstanding, and why:** the items above that need a completed *event* were skipped
+because the probe config disables detection for speed and determinism. Re-run the probe
+with detection enabled (see [`spike/README.md`](../../spike/README.md)) — or simply walk
+past a camera — to cover `retain`/`unretain`, the event-scoped endpoint, and the
+`frigate/events` payload.

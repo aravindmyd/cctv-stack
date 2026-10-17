@@ -32,7 +32,7 @@ def open_db(path: Path, *, readonly: bool = False) -> Connection:
     conn = sqlite3.connect(
         f"file:{path}?mode={'ro' if readonly else 'rwc'}",
         uri=True,
-        isolation_level=None,       # explicit transaction control
+        isolation_level=None,  # explicit transaction control
         timeout=5.0,
         check_same_thread=False,
     )
@@ -79,7 +79,7 @@ per minute. One connection per thread is simpler and sufficient.
 ```python
 @contextmanager
 def write_txn(conn) -> Iterator[Connection]:
-    conn.execute("BEGIN IMMEDIATE")     # acquire the write lock now, not later
+    conn.execute("BEGIN IMMEDIATE")  # acquire the write lock now, not later
     try:
         yield conn
         conn.execute("COMMIT")
@@ -101,13 +101,13 @@ The canonical violation to avoid:
 # WRONG — holds the write lock across an upload
 with write_txn(conn):
     clip = claim_next(conn)
-    storage.put_object(clip)          # could take 30 seconds
+    storage.put_object(clip)  # could take 30 seconds
     mark_uploaded(conn, clip)
 
 # RIGHT — claim, then work, then complete
-clip = claim_next(conn)               # own transaction, commits
-storage.put_object(clip)              # no transaction held
-mark_uploaded(conn, clip)             # own transaction
+clip = claim_next(conn)  # own transaction, commits
+storage.put_object(clip)  # no transaction held
+mark_uploaded(conn, clip)  # own transaction
 ```
 
 A lint rule and a code-review checklist item exist for this, because it is easy to
@@ -227,7 +227,8 @@ contract with implementation notes:
 def claim_batch(conn, *, worker: str, batch: int, lease_s: float) -> list[ClipRecord]:
     now = utcnow()
     with write_txn(conn):
-        rows = conn.execute("""
+        rows = conn.execute(
+            """
             UPDATE clips
                SET upload_state     = 'UPLOADING',
                    lease_owner      = ?,
@@ -243,7 +244,9 @@ def claim_batch(conn, *, worker: str, batch: int, lease_s: float) -> list[ClipRe
              )
             RETURNING id, camera, path, sidecar_path, sha256, size_bytes,
                       attempts, event_id, start_time
-        """, (worker, now + lease_s, now, now, batch)).fetchall()
+        """,
+            (worker, now + lease_s, now, now, batch),
+        ).fetchall()
     return [ClipRecord(**row) for row in rows]
 ```
 

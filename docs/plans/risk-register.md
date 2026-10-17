@@ -168,7 +168,7 @@ provider quirks — fail on an operator's machine rather than in CI.
 
 **Mitigation**
 - `dev-synthetic` profile exercises the full pipeline in CI without cameras or hardware
-- MinIO provides an S3-compatible test double, so the adapter is exercised end to end
+- RustFS provides an S3-compatible test double, so the adapter is exercised end to end
 - Detection is tested against **recorded fixtures** (`uname`, `/proc`, `lsusb`, `lspci`),
   covering hardware we do not own
 - `doctor.sh` produces a structured diagnostics bundle, turning "it didn't work" into a
@@ -479,6 +479,33 @@ mechanism has several independent ways to produce it.
 
 **Impact:** H — the system keeps and backs up footage that cannot answer the question it
 was kept for. Silent, and discovered at the worst possible moment.
+
+**MEASURED (M1, Frigate 0.18.0). This risk is real and reproduced.**
+
+| Probe | Result |
+|---|---|
+| Truncation at low fetch lag | **5 of 6 sampled lags returned `200` with a short clip** |
+| First lag with full-length footage | **10 s** — the design default was 5 s, i.e. **wrong** |
+| `-c copy` cut precision | errs **outward**, mean **+1.88 s** per 10 s |
+| Error semantics | `400 "No recordings found"` — retryable classification confirmed |
+| Audio | preserved as AAC |
+| Packet gaps | **3.55 s in a healthy clip, larger than the 2.55 s keyframe interval** |
+
+Two consequences:
+
+1. **`segment_flush_grace_s` 5 s → 15 s.** With the original default, essentially every
+   promptly-fetched clip would have ended early, silently, with the dashboard green. The
+   defect would have shipped.
+2. **The gap detector as designed does not work.** A healthy clip reports a packet gap
+   larger than its keyframe interval, so PTS deltas cannot distinguish a missing segment
+   from a `-c copy` timestamp discontinuity at a segment join. Left unchanged, every clip
+   would be flagged as holed and the signal would be worthless. A different criterion is
+   required before it ships — see [`lld/02`](../architecture/lld/02-clip-worker.md#9-configuration).
+
+Evidence: [`spike/RESULTS.md`](../spike/RESULTS.md).
+
+**Status: partially retired.** The truncation cause is confirmed and the fix is
+calibrated; the gap-detection criterion is an open design task, not a mitigation.
 
 **Four independent causes** (all addressed in
 [ADR-0015](../adr/0015-clip-boundaries-and-padding.md)):

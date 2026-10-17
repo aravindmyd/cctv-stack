@@ -150,15 +150,35 @@ input indicates corruption, not a transient fault. The clip is escalated to
 | Single-part PUT | The provider reports a content checksum for the stored object. Compare against local `sha256` |
 | Multipart PUT | The reported value is typically a composite digest and is **not** comparable to a plain SHA-256 of the file |
 
-> **VERIFY AT IMPLEMENTATION.** Confirm the checksum algorithm and encoding that the
-> S3-compatible B2 endpoint returns for single-part and multipart PUTs in the pinned
-> provider version, and record it here. B2's native API reports SHA-1; the
-> S3-compatible API's ETag semantics differ. Do not assume; measure.
+**Implemented** (`src/cctv/storage.py`): a single-part PUT sends `ChecksumSHA256` (the
+base64 of the local SHA-256) alongside the body and compares whatever the provider returns
+against it; a mismatch is `checksum_mismatch` and permanent. If the provider returns no
+comparable checksum — which is what a multipart PUT always does — the adapter falls back to
+a `HEAD` and compares the stored size **and** our own `sha256` metadata key, recording
+`verified_by="size"`. If neither is possible it records `verified_by="none"` and the
+uploader reports `DEGRADED` with `UPLOAD_UNVERIFIED`. The verification we claim is always
+the verification we performed; that is an invariant of the adapter, not a convention, and
+it is asserted by `tests/test_storage.py`.
 
-**Rule:** if a comparable checksum is unavailable for a given upload shape, do not
-claim verification. Either fall back to a size comparison plus a documented
-`VERIFIED_BY_SIZE` state, or perform a `HEAD` and compare size and metadata. Claiming
-a checksum match we did not perform is worse than admitting we only checked the size.
+The uploader marks a clip `UPLOADED` in all three cases. `UPLOADED` means "an object exists
+at the deterministic key and the upload was not contradicted", *not* "a checksum was
+compared" — the distinction is carried by the health check, because the alternative is to
+hold a clip locally forever over a provider that simply does not report checksums.
+
+> **MEASURED, against RustFS (2026-10-06).** A single-part PUT to an S3-compatible server
+> returns a comparable `ChecksumSHA256`, and the adapter records `verified_by="sha256"` with a
+> matching object at the key. The checksum path is therefore exercised for real, not only
+> against the fake client. `tests/integration/test_storage_live.py` prints the value on every
+> run.
+>
+> **STILL TO MEASURE, against real Backblaze B2.** Which value the S3-compatible endpoint
+> returns for a single-part PUT in the pinned provider version, and whether the base64 is of
+the raw digest (what the code assumes, per the S3 specification). B2's native API reports
+SHA-1 and the S3-compatible API's `ETag` semantics differ, so the `ChecksumSHA256`
+response header is what the code reads — but this has been exercised against a fake client
+and a compatible server only. The failure mode if the assumption is wrong is safe rather than
+silent: the comparison fails, the clip goes to `FAILED_PERMANENT` with `checksum`, and the
+local file is preserved.
 
 ### 4.3 Re-verification
 
@@ -239,11 +259,30 @@ Three mitigations, all applied:
    `EXPIRED_CLOUD` only when confirmed; otherwise the row goes to a
    `cloud_delete_failed` condition and the health degrades.
 
-> **VERIFY AT IMPLEMENTATION.** Confirm how the S3-compatible endpoint expresses
-> hiding versus hard deletion in the pinned provider version, and whether the
-> bucket's versioning setting can be configured through that endpoint or requires
-> the native API. If the native API is required, the adapter needs a second, narrow
-> code path for bucket configuration — and that is a finding worth recording here.
+> **STILL TO MEASURE, against real Backblaze B2.** How the S3-compatible endpoint expresses
+> hiding versus hard deletion in the pinned provider version, and whether the bucket's
+> versioning setting can be configured through that endpoint or requires the native API. If
+> the native API is required, the adapter needs a second, narrow code path for bucket
+> configuration — and that is a finding worth recording here.
+>
+> What is already implemented and does not depend on the answer: `delete_object` **always**
+> confirms the deletion with a `HEAD` and reports `deleted=False` when the object is still
+> present, so a hide marker can never be recorded as a successful deletion. That behaviour is
+> asserted by
+> `tests/test_storage.py::test_a_delete_that_only_hid_the_object_is_not_reported_as_success`.
+>
+> **MEASURED, against RustFS (2026-10-06).** With versioning enabled, a plain `DELETE` left
+> one delete marker and one prior version in place while `head_object` returned nothing — the
+> trap is real on an S3-compatible server, not just theorised. The adapter reported
+> `deleted=True`, which is the honest limit of a `HEAD`: it can see that the object is no
+> longer visible, not that the bytes are gone. This is exactly why M4.6 requires a deletion to
+> be *confirmed* before `EXPIRED_CLOUD` is recorded, and it is the evidence
+> `tests/integration/test_storage_live.py::test_a_versioned_bucket_keeps_the_bytes_after_a_delete`
+> preserves.
+>
+> **STILL TO MEASURE, against real Backblaze B2.** Whether B2's S3-compatible endpoint hides
+> rather than deletes the same way, and whether the bucket's versioning setting can be
+> configured through that endpoint or requires the native API.
 
 ### 5.4 Lifecycle rule management
 
@@ -264,8 +303,9 @@ provider into our logic, defeating [ADR-0005](../../adr/0005-b2-behind-storage-a
 ```python
 class StorageAdapter(Protocol):
     def ensure_bucket(self, *, configure_lifecycle: LifecycleSpec | None) -> None: ...
-    def put_object(self, *, key: str, path: Path, metadata: dict[str, str],
-                   checksum_sha256: str) -> PutResult: ...
+    def put_object(
+        self, *, key: str, path: Path, metadata: dict[str, str], checksum_sha256: str
+    ) -> PutResult: ...
     def head_object(self, *, key: str) -> ObjectInfo | None: ...
     def delete_object(self, *, key: str) -> DeleteResult: ...
     def list_objects(self, *, prefix: str, max_keys: int = 1000) -> Iterator[ObjectInfo]: ...
@@ -286,8 +326,10 @@ semantics in §4.2.
 
 ### 6.1 The test double
 
-Because the interface is S3-shaped, CI uses an S3-compatible server (MinIO) with
-`STORAGE_ENDPOINT_URL` overridden. Requirements this places on the adapter:
+Because the interface is S3-shaped, CI uses an S3-compatible server (RustFS) with
+`STORAGE_ENDPOINT_URL` overridden ([ADR-0019](../../adr/0019-rustfs-as-s3-test-double.md)).
+The suite is endpoint-agnostic, so any S3-compatible server — or a real B2 bucket — can be
+used instead. Requirements this places on the adapter:
 
 - No B2-specific SDK calls in the hot path.
 - No B2-specific behaviour in key construction.

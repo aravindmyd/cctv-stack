@@ -3,10 +3,11 @@
 **Implements:** [INV-1](../invariants.md), [INV-5](../invariants.md), [INV-9](../invariants.md), [INV-12](../invariants.md), [INV-14](../invariants.md)
 **Version:** 📐 draft
 
-Turning a completed Frigate event into exactly one canonical clip file. This is the
-component that creates the artefact the entire system exists to protect, and the one
-with the tightest deadline: Frigate's own recording retention is a clock ticking on
-every unmaterialised event.
+Turning a completed Frigate **review item** into exactly one canonical clip file. A
+canonical clip is one *visit*, not one tracked object ([ADR-0016](../../adr/0016-clip-per-review-item.md)).
+This is the component that creates the artefact the entire system exists to protect, and
+the one with the tightest deadline: Frigate's own recording retention is a clock ticking
+on every unmaterialised review.
 
 ---
 
@@ -14,7 +15,7 @@ every unmaterialised event.
 
 | # | Responsibility | Not |
 |---|---|---|
-| R1 | Consume `frigate/events` and decide what needs materialising | Decide retention |
+| R1 | Consume `frigate/reviews` and decide what needs materialising | Decide retention |
 | R2 | Pin an event in Frigate before downloading it | Upload anything |
 | R3 | Download the clip, remux it, verify it | Delete anything |
 | R4 | Write it atomically to the canonical path | Manage cloud storage |
@@ -100,42 +101,48 @@ ready one.
 
 ### 3.1 Trigger condition
 
-Per the integration contract §3.2:
+Per the integration contract §3.4:
 
 ```python
 should_materialise = (
-    after.end_time is not None
-    and after.has_clip is True
-    and not after.false_positive
+    after.end_time is not None  # review is final
     and after.camera in known_cameras
-    and not db.exists(event_id=after.id)
+    and after.severity in camera.clip.severities  # default [alert, detection]
+    and any(o in camera.clip.objects for o in after.data.objects)
+    and not db.exists(review_id=after.id)
 )
 ```
 
-Evaluated on **every** `frigate/events` message regardless of `type`. Frigate
-publishes `update` messages when it finds a better snapshot or the object enters a
-zone, and we must not depend on receiving a final `end` message that a broker restart
-could have eaten.
+Evaluated on **every** `frigate/reviews` message regardless of `type`. Frigate
+publishes `update` messages as activity continues, and we must not depend on receiving a
+final `end` message that a broker restart could have eaten.
+
+**Why reviews and not events.** A single visitor produces several tracked objects and
+therefore several events. Those are one visit — three overlapping clips containing the
+same footage is not what anybody wants to watch ([ADR-0016](../../adr/0016-clip-per-review-item.md)).
+Frigate already computes the grouping, so we consume it rather than inventing visit
+windows. Events are still consumed, but only to record the constituent event ids in the
+clip's sidecar.
 
 ### 3.2 The fetch range and schedule
 
 Two values are computed at enqueue time and travel with the queue item:
 
 ```python
-pre_roll_s  = camera.clip.pre_roll_s    # default 5
-post_roll_s = camera.clip.post_roll_s   # default 10
+pre_roll_s = camera.clip.pre_roll_s  # default 5
+post_roll_s = camera.clip.post_roll_s  # default 10
 
-requested_start = after.start_time - pre_roll_s
-requested_end   = after.end_time   + post_roll_s
-not_before      = after.end_time   + post_roll_s + segment_flush_grace_s
+requested_start = review.start_time - pre_roll_s
+requested_end = review.end_time + post_roll_s
+not_before = review.end_time + post_roll_s + segment_flush_grace_s
 ```
 
 | Value | Why it is what it is |
 |---|---|
-| `requested_start` before the event | `start_time` is when Frigate began tracking, so the approach is already missing without pre-roll |
-| `requested_end` after the event | `end_time` is when tracking stopped, which is usually before the subject has left |
+| `requested_start` before the review | Frigate's review begins when the object is first tracked, so the approach is already missing without pre-roll |
+| `requested_end` after the review | The review ends when activity stops, which is usually before the subject has left frame |
 | Asymmetric | Wanted in practice: post-roll longer than pre-roll. Symmetric padding would inflate every clip ([ADR-0015](../../adr/0015-clip-boundaries-and-padding.md)) |
-| `not_before` | Waits for Frigate's segment flush, which is what prevents silent truncation |
+| `not_before` | Waits for Frigate's segment flush, which is what prevents silent truncation. **Measured floor is 10 s** — see [`spike/RESULTS.md`](../../../spike/RESULTS.md) |
 
 Both rolls are per-camera overridable in `cameras.yml`, because a driveway where cars
 manoeuvre wants a longer post-roll than a doorway.
@@ -147,11 +154,12 @@ manoeuvre wants a longer post-roll than a doorway.
 
 ### 3.3 Idempotency at intake
 
-Three independent guards, because duplicates arrive constantly in normal operation:
+Three independent guards, because duplicates arrive constantly in normal operation — a
+review is `update`d as activity continues:
 
-1. **In-memory**: a `set` of recently-seen event ids (bounded, ~10 000 entries)
+1. **In-memory**: a `set` of recently-seen review ids (bounded, ~10 000 entries)
 2. **Queue**: the fetch worker re-checks the DB before starting
-3. **Database**: `UNIQUE(event_id)` on `clips` makes a duplicate insert an error the
+3. **Database**: `UNIQUE(review_id)` on `clips` makes a duplicate insert an error the
    worker treats as "already done"
 
 Guard 3 is the only one that matters for correctness. Guards 1 and 2 are for
@@ -161,12 +169,14 @@ efficiency.
 
 | Condition | Action |
 |---|---|
-| `false_positive` | Skip, log DEBUG. Frigate has judged it not real |
+| `end_time` is null | Skip. The review is still open — wait for it to finalise |
+| `severity` not in `clip.severities` | Skip, log DEBUG. Per-camera policy |
+| No object in `data.objects` matches `clip.objects` | Skip, log DEBUG. Default is `[person]` |
 | Camera not in `cameras.yml` | Skip, log WARNING once per camera |
-| `has_clip` false | Skip. Nothing to fetch — Frigate has no clip for it |
-| Event already in DB | Skip silently |
-| Camera `detect.enabled: false` | Still materialise if an event exists (`record.mode` may still produce one) |
-| Duration < `min_clip_duration_s` (default 1.0) | Materialise anyway. Frigate found something; we are not a second judge |
+| Review already in DB | Skip silently |
+| Camera `detect.enabled: false` | Still materialise if a review exists (`record.mode` may still produce one) |
+| Review shorter than `min_clip_duration_s` (1.0) | Materialise anyway. Frigate found something; we are not a second judge |
+| Review longer than `long_clip_warn_s` (1800) | Materialise **in full**, flag it, count it. Never split, never truncate |
 
 ---
 
@@ -209,13 +219,14 @@ truncation race rather than retrying after losing it.
 tmp = clips_dir / camera / date / f".{basename}.tmp.{pid}-{rand}"
 async with client.stream("GET", url, timeout=fetch_timeout_s) as r:
     if r.status_code == 400 and "No recordings found" in body:
-        raise NoRecordingsYet()      # retryable: the flush has not happened, or footage expired
+        raise NoRecordingsYet()  # retryable: the flush has not happened, or footage expired
     r.raise_for_status()
     async with aiofiles.open(tmp, "wb") as f:
         async for chunk in r.aiter_bytes(64 * 1024):
             f.write(chunk)
             received += len(chunk)
-    await f.flush(); os.fsync(f.fileno())
+    await f.flush()
+    os.fsync(f.fileno())
 ```
 
 | Check | Action on failure |
@@ -309,8 +320,8 @@ window.
 ```python
 final = clips_dir / camera / "YYYY" / "MM" / "DD" / "HH-MM-SS.mp4"
 final.parent.mkdir(parents=True, exist_ok=True)
-os.rename(verified_file, final)          # atomic: same filesystem
-fsync_dir(final.parent)                  # make the rename durable
+os.rename(verified_file, final)  # atomic: same filesystem
+fsync_dir(final.parent)  # make the rename durable
 ```
 
 Same filesystem is guaranteed by the installer's single-filesystem check
@@ -328,8 +339,8 @@ Never overwrite. Never randomise.
 ### Step 6 — Hash and record
 
 ```python
-sha256 = hash_file(final)          # streamed, never loads the file into memory
-size   = final.stat().st_size
+sha256 = hash_file(final)  # streamed, never loads the file into memory
+size = final.stat().st_size
 ```
 
 Single `BEGIN IMMEDIATE` transaction:
@@ -575,12 +586,32 @@ headroom exhausted      → data loss, recorded in EXPIRED_BEFORE_FETCH, counted
 |---|---|---|
 | `pre_roll_s` | 5.0 | Footage included before `event.start_time`. Per-camera overridable |
 | `post_roll_s` | 10.0 | Footage included after `event.end_time`. Per-camera overridable |
-| `segment_flush_grace_s` | 5 | Wait after the roll before fetching, so Frigate has flushed the final segment. **Raise this first if `flush_pressure` is high** |
+| `segment_flush_grace_s` | **15** | Wait after the roll before fetching, so Frigate has flushed the final segment. **Measured floor is 10 s** — see [`spike/RESULTS.md`](../../../spike/RESULTS.md). Raise this first if `flush_pressure` is high |
 | `max_flush_retries` | 3 | Re-fetch attempts when coverage is below `coverage_retry` |
 | `flush_retry_delay_s` | 15 | Delay between re-fetches |
 | `coverage_ok` | 0.95 | Accept at or above this ratio |
+
+> ⚠️ **`max_gap_s` needs a different criterion before it ships.** M1 measured a **3.55 s**
+> packet gap in a healthy 30-second clip whose keyframe interval was only **2.55 s**.
+> Two possible explanations: the camera genuinely dropped frames, or `-c copy`
+> concatenation of recording segments produces **timestamp discontinuities at segment
+> joins**. The second is more likely and is a fatal problem for the naive measure —
+> essentially every clip would be flagged as holed, and a signal that fires always
+> carries no information.
+>
+> Candidates, in preference order:
+>
+> 1. **Detect gaps against Frigate's `recordings` table** rather than packet timestamps:
+>    a missing segment is a known fact, not an inference from a PTS delta.
+> 2. **Compare the clip's duration against the sum of the overlapping segments' durations.**
+>    Concatenation preserves total duration; a hole reduces it.
+> 3. Keep packet-delta detection but **subtract known segment boundaries** before
+>    measuring, so joins are not counted.
+>
+> Until one of these is implemented, `max_gap_s` must be treated as **advisory only**,
+> and no health signal may depend on it. See [ADR-0015](../../adr/0015-clip-boundaries-and-padding.md).
 | `coverage_retry` | 0.80 | Below this, do not accept — retry |
-| `max_gap_s` | 2.0 | Video packet delta above this counts as a hole |
+| `max_gap_s` | 2.0 ⚠️ | Video packet delta above this counts as a hole. **Not yet trustworthy** — see the warning below |
 | `gap_check_max_s` | 300 | Above this duration, sample packets rather than scanning |
 | `long_clip_warn_s` | 1800 | Flag long clips. They are stored in full regardless |
 | `trim_to_range` | `false` | Opt-in trimming. **Can only remove footage, never restore it** |

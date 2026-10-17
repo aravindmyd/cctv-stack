@@ -3,6 +3,40 @@
 **Implements:** [INV-1](../invariants.md), [INV-7](../invariants.md), [INV-10](../invariants.md)
 **Specified by:** [`contracts/database-schema.md`](../contracts/database-schema.md), [`contracts/cloud-object-layout.md`](../contracts/cloud-object-layout.md)
 
+---
+
+## 0. Implementation status
+
+**Built** (M3, `0.3.0`): `src/cctv/uploader.py` (the service and the claim/upload/record
+loop), `src/cctv/storage.py` (the adapter and the error classification), `src/cctv/health.py`
+(the health contract and its HTTP surface). Entry point `cctv-uploader`; an `uploader`
+service in `compose.yml` with `clips/` mounted **read-only**; 136 new tests across
+`tests/test_uploader.py` (62), `tests/test_storage.py` (38) and `tests/test_health.py` (36),
+plus 10 more for the new state-store accessors in `tests/test_db.py`. The suite is 656.
+
+Verified by running it: the service starts against a throwaway site, migrates a fresh
+database, reports `DISABLED` with no bucket configured, serves `/health` and `/metrics`,
+refuses `/admin/queue` without a token, and shuts down cleanly on `SIGTERM`. The real
+`boto3` client and the multipart `TransferConfig` are constructed with every argument this
+document specifies. Everything else is verified against a fake S3 client and a throwaway
+`sqlite3` database, not against Backblaze.
+
+Where this document and the code disagreed, the code followed the document except in these
+four places. Each is a decision, and each is recorded here rather than left for a reader to
+discover:
+
+| This document | What was built | Why |
+|---|---|---|
+| §4 lists `throttled`, `file_missing` and `invalid_request` alongside the rest | Mapped onto the six classes `clips.last_error_class` accepts | The column has a closed `CHECK` (database-schema §2.3). A seventh value would mean a table rebuild for a label, and the *decision that matters* — retry or not — is carried by `StorageError.retryable`. The message and the audit event name the specific cause |
+| §3 step 6 emits `system_events` on every success | One log line per upload plus the `upload_attempts` row; no per-success audit row | `system_events` is also the alert-deduplication store. ~100 success rows a day would be an audit trail whose signal is buried, and nothing alerts on success |
+| §6 measures `oldest_pending_age_s` from the clip's event | Measured from `COALESCE(materialised_at, created_at)` | A clip materialised an hour after its event is not an hour behind on *upload*. The number has to mean "how long has this been waiting to be uploaded" or it is not actionable |
+| §9 `/admin/verify` | **Not implemented** | It re-downloads a whole object, and downloads are the one thing B2 bills for. Nothing in M3's exit criteria needs it. `aws s3api head-object` answers the same question for free, because every object carries its own `sha256` in its metadata. Tracked in [`plans/backlog.md`](../../plans/backlog.md) |
+
+The checks this service reports are the six §8 requires plus `failed_permanent` and
+`upload_verification`: `state_db`, `storage_reachable`, `storage_credentials`,
+`local_files_readable`, `upload_staleness`, `backlog_age`, `failed_permanent`,
+`upload_verification`.
+
 Getting every canonical clip into Backblaze B2 exactly once, surviving restarts,
 network partitions, credential rotations, and provider outages — and never, under any
 circumstance, becoming the reason a clip is lost.
@@ -95,7 +129,7 @@ inside the transaction.
 ### Step 3 — Derive the key
 
 ```python
-key = f"{location}/clips/{clip.path}"     # clip.path is relative to data/clips/
+key = f"{location}/clips/{clip.path}"  # clip.path is relative to data/clips/
 ```
 
 No translation, no escaping, no platform-specific handling. The contract requires
@@ -109,7 +143,7 @@ A test asserts this equality for every clip row.
 result = adapter.put_object(
     key=key,
     path=abs_path,
-    metadata=metadata_for(clip),        # per cloud-object-layout §3.2
+    metadata=metadata_for(clip),  # per cloud-object-layout §3.2
     checksum_sha256=clip.sha256,
 )
 ```
@@ -208,7 +242,7 @@ retry.
 
 ```python
 delay = min(backoff_base * (2 ** (attempt - 1)), backoff_max)
-delay = delay * random.uniform(0.8, 1.2)       # jitter
+delay = delay * random.uniform(0.8, 1.2)  # jitter
 ```
 
 | Attempt | Delay (base 15 s) | Cumulative |

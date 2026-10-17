@@ -331,19 +331,30 @@ identical to a successful upload.
 
 ## 11. Configuration
 
+Environment variables, as everywhere else in this project: there are no CLI arguments to get
+wrong. The names below are the `CCTV_CLEANUP_*` / `CCTV_HEALTH_*` forms.
+
 | Key | Default | Effect |
 |---|---|---|
 | `run_interval_s` | 3600 | J1/J2/J5 cadence |
-| `reconcile_interval_s` | 86400 | J3 cadence |
-| `housekeeping_interval_s` | 86400 | J4 cadence |
+| `reconcile_interval_s` | 86400 | J3 cadence — **not implemented yet** |
+| `housekeeping_interval_s` | 86400 | J4 cadence — **not implemented yet** |
 | `batch_size` | 200 | Clips per transaction |
-| `delete_concurrency` | 4 | Parallel cloud deletes |
-| `clips_overdue_warn` / `clips_overdue_critical` | 10 / 10 | J5 thresholds |
-| `verify_after_delete` | `true` | `HEAD` after `DELETE` |
-| `delete_failure_critical` | 5 | `cloud_delete_failures` threshold |
-| `keep_db_backups` | 10 | Rotation |
+| `delete_concurrency` | 4 | Parallel cloud deletes — J2 |
+| `clips_overdue_warn` / `clips_overdue_critical` | **1 / 10** | J5 thresholds, per §9's behaviour table. §11 previously said `10 / 10`, which contradicts §9 and would have made a single held clip invisible |
+| `overdue_age_critical_days` | 30 | A clip held longer than this past its deadline is `UNHEALTHY`, however few are held |
+| `disk_warn_pct` / `disk_critical_pct` | 15 / 5 | Free-space thresholds, shared with every other service's health surface |
+| `verify_after_delete` | `true` | `HEAD` after `DELETE` — J2 |
+| `delete_failure_critical` | 5 | `cloud_delete_failures` threshold — J2 |
+| `keep_db_backups` | 10 | Rotation — J4 |
 | `local_days` / `cloud_days` | 90 / 60 | Defaults; overridable per camera |
 | `retire_grace_days` | 0 | Extra local retention for retired cameras, if an operator wants it |
+
+> **Implemented so far (J1):** `run_interval_s`, `batch_size`, `retire_grace_days`,
+> `clips_overdue_warn`, `clips_overdue_critical`, `overdue_age_critical_days`,
+> `disk_warn_pct`, `disk_critical_pct`, plus the health host and port. The J2/J3/J4 rows above
+> are the design for the jobs that have not been built; they are listed so the shape is
+> visible, not because they do anything yet.
 
 ---
 

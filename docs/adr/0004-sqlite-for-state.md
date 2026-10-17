@@ -48,7 +48,7 @@ writes, one connection per thread, and no network I/O inside a transaction.**
   in PRD §14 tractable rather than a project in itself
 - **Transactional state transitions**, which is exactly what the upload state machine
   needs. A claim is atomic; a crash cannot leave a half-updated row
-- **`UNIQUE(event_id)` enforces idempotency in the schema**, not in application logic
+- **`UNIQUE(review_id)` enforces idempotency in the schema**, not in application logic
   ([INV-7](../architecture/invariants.md))
 - **Concurrent readers with one writer** matches the actual access pattern: three
   readers and one writer at a time, most of the time

@@ -119,8 +119,8 @@ resumes.
 
 ## INV-5 — Clip paths are deterministic and derivable
 
-**Statement.** The path of a clip is a pure function of its camera name, event
-start time, and the configured timezone. Given the metadata, any process can
+**Statement.** The path of a clip is a pure function of its camera name,
+**review** start time, and the configured timezone. Given the metadata, any process can
 compute the path without asking another component. Materialisation is therefore
 idempotent: doing it twice produces the same path.
 
@@ -299,28 +299,37 @@ which must produce a specific, asserted error message and a non-zero exit code.
 
 ---
 
-## INV-12 — Time is UTC in storage
+## INV-12 — Time is stored as an instant, rendered in the site timezone
 
-**Statement.** Every timestamp persisted in the database, every cloud key, every
-comparison between our data and Frigate's, is in UTC. Local time exists only in
-human-facing filenames and UI.
+**Statement.** Every timestamp persisted in the database and every comparison with
+Frigate is a **timezone-free instant** (epoch seconds). The site timezone is applied
+only when a value is rendered for a human: clip path components, logs, the `/status`
+page, and cloud object metadata. Exactly one function performs that rendering, and it
+takes the timezone explicitly.
 
-**Why.** Frigate's API speaks UTC epoch seconds, its recording tree is UTC, and its
-review logic is UTC. Mixing in local time produces duplicate clips across DST
-transitions and clips that are an hour off once a year — the hardest class of bug
-to notice and diagnose.
+**Why.** An instant is the same everywhere, so storing one cannot be wrong and cannot
+lose information — any zone stays derivable from it. What *can* be wrong is rendering
+the same instant in two different zones, which produces duplicate clips and clips that
+are an hour off once a year: the hardest class of bug to notice and diagnose.
 
 **Enforcement.**
 - The database stores epoch seconds as `REAL`. No timezone-aware or naive datetime
   strings are persisted.
-- The path function takes an explicit timezone argument, and the default is
-  resolved once at config load, not per call.
-- All internal comparisons convert to UTC first.
-- A lint rule / test forbids `datetime.now()` without an explicit UTC basis in
-  service code.
+- The path function takes an explicit timezone argument, and the timezone is resolved
+  once at config load, not per call and not from the process environment.
+- `site.timezone` is mandatory and is never guessed from the host.
+- All internal comparisons are between instants. There is no conversion step that could
+  be applied twice or in the wrong direction.
+- A lint rule / test forbids `datetime.now()` without an explicit timezone and forbids
+  `time.localtime()` in service code.
 
-**Detection.** A DST-transition test materialises events on both sides of a
-forward and backward transition and asserts no collisions and no gaps.
+**Detection.** A DST-transition test renders instants on both sides of a forward and a
+backward transition and asserts no collisions and no gaps. A second test asserts that
+`Asia/Kolkata` (UTC+05:30, no DST) renders a 6:45 pm instant under an `18-45-29`
+filename without the code branching on the offset.
+
+See [ADR-0017](../adr/0017-time-handling.md) for why the stored value is an instant
+rather than a rendered local-time string.
 
 ---
 
@@ -361,7 +370,7 @@ result obtained** rather than discarding it.
 and both are silent:
 
 - **Undershoot** — the clip starts after the action began, or ends before it finished.
-  Frigate's `event.start_time` is when tracking *began*, so a clip cut to the event's own
+  Frigate's `review.start_time` is when *activity* began, so a clip cut to the review's own
   boundaries always misses the approach. Worse, Frigate cuts clips from recording
   segments that are written to cache first and flushed to disk later, so a fetch issued
   immediately after an event ends can be truncated with no error at all.

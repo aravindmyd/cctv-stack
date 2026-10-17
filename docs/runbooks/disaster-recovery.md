@@ -195,7 +195,7 @@ asks B2 whether each object exists, and classifies every clip:
 | ❌ | ❌ | **unrecoverable** | Reported explicitly |
 
 The third row is the important one, and it is safe by construction: an unknown clip is
-treated as *not yet uploaded*, and the deterministic key plus `UNIQUE(event_id)` make the
+treated as *not yet uploaded*, and the deterministic key plus `UNIQUE(review_id)` make the
 re-upload idempotent. Nothing is duplicated, and nothing is skipped.
 
 Hashes are **recomputed from the files**, never trusted from a manifest — the manifest is

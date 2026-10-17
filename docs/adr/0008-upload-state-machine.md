@@ -48,7 +48,7 @@ Supporting decisions:
 | Retry | Exponential backoff with jitter, from `attempts` stored on the row |
 | Termination | `attempts >= max_attempts` → `FAILED_PERMANENT`, alerted, **file retained** |
 | Deletion permission | Local retention enumerates `UPLOADED` and `SKIPPED_BY_POLICY` **positively** ([INV-1](../architecture/invariants.md)) |
-| Idempotency | `UNIQUE(event_id)` plus a deterministic cloud key plus checksum verification |
+| Idempotency | `UNIQUE(review_id)` plus a deterministic cloud key plus checksum verification |
 | Illegal transitions | Rejected in code and logged `CRITICAL` |
 | Legitimate local-only mode | `SKIPPED_BY_POLICY` — an explicit, non-alerting state, so a deliberate choice is distinguishable from a failure |
 | Manual intervention | `FORCE_DELETED` is terminal and permanent in the record, so giving up on a clip is not indistinguishable from success |

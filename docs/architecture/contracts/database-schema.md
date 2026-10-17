@@ -7,6 +7,13 @@ system. It is also the **only** coordination mechanism between our services — 
 never call each other. This is what makes any one of them being down a survivable
 condition rather than a cascading failure.
 
+> **Implementation note (v0.3.0).** The file currently lives at `${DATA_DIR}/cctv.db`
+> (`CCTV_DB`, default `<data_dir>/cctv.db`), which the clip-worker and the uploader both
+> name explicitly in `compose.yml` so the two cannot drift apart. Moving it to the
+> `data/state/state.db` above is a migration and belongs with the installer (`lld/07`,
+> M6). Every accessor is written against `CCTV_DB`, so the move is a configuration change
+> plus a file move, not a code change.
+
 ---
 
 ## 1. Why SQLite
@@ -87,15 +94,17 @@ so a row implies a file (until retention deletes it).
 | Column | Type | Notes |
 |---|---|---|
 | `id` | INTEGER | PK autoincrement |
-| `event_id` | TEXT | **UNIQUE.** Frigate's event id — the idempotency key |
+| `review_id` | TEXT | **UNIQUE.** Frigate's review item id — the idempotency key ([ADR-0016](../../adr/0016-clip-per-review-item.md)) |
+| `event_ids` | TEXT | JSON array of the constituent event ids, from the review's `data.detections`. Preserves event-level searchability for a per-visit file |
+| `severity` | TEXT | `alert` \| `detection`, from the review |
 | `camera` | TEXT | FK → `cameras.name` |
 | `label` | TEXT | Primary label, denormalised for querying |
 | `zones` | TEXT | JSON array |
 | `start_time` | REAL | UTC epoch seconds, from Frigate |
 | `end_time` | REAL | UTC epoch seconds |
 | `duration_s` | REAL | From `ffprobe`; the achieved duration |
-| `requested_start_ts` | REAL | `event.start_time − pre_roll_s`: the range start we asked Frigate for |
-| `requested_end_ts` | REAL | `event.end_time + post_roll_s`: the range end we asked for |
+| `requested_start_ts` | REAL | `review.start_time − pre_roll_s`: the range start we asked Frigate for |
+| `requested_end_ts` | REAL | `review.end_time + post_roll_s`: the range end we asked for |
 | `requested_s` | REAL | `requested_end_ts − requested_start_ts` |
 | `coverage_ratio` | REAL | `duration_s / requested_s`. The clip-quality metric ([INV-14](../invariants.md)) |
 | `pre_roll_s` / `post_roll_s` | REAL | The values in force when this clip was fetched, so a config change is auditable after the fact |
@@ -115,7 +124,7 @@ so a row implies a file (until retention deletes it).
 | `next_attempt_at` | REAL | When a retry becomes eligible |
 | `lease_owner` | TEXT | Hostname + pid of the claiming worker |
 | `lease_expires_at` | REAL | Expired leases are reclaimable |
-| `last_error_class` | TEXT | `transient` \| `auth` \| `not_found` \| `quota` \| `checksum` \| `unknown` |
+| `last_error_class` | TEXT | `transient` \| `auth` \| `not_found` \| `quota` \| `checksum` \| `unknown`. A **closed** set, enforced by `CHECK`. `lld/04` §4's longer list of causes maps onto these six; the retry decision is carried by the error type in code, and the specific cause is in `last_error` and the audit event |
 | `last_error` | TEXT | Truncated to 2000 chars. Never contains credentials |
 | `cloud_key` | TEXT | Object key, set at claim time |
 | `cloud_etag` | TEXT | Provider-reported checksum after upload |
@@ -133,7 +142,7 @@ Indexes (each exists for a specific query; no speculative indexes):
 
 | Index | Serves |
 |---|---|
-| `UNIQUE(event_id)` | Idempotency — the core of [INV-7](../invariants.md) |
+| `UNIQUE(review_id)` | Idempotency — the core of [INV-7](../invariants.md) |
 | `(upload_state, next_attempt_at, id)` | Uploader claim query |
 | `(upload_state, start_time)` | Local retention sweep |
 | `(upload_state, uploaded_at)` | Cloud retention sweep |
@@ -238,10 +247,15 @@ never auto-repaired.
 |---|---|---|
 | `id` | INTEGER | PK |
 | `run_at` | REAL | |
-| `kind` | TEXT | `orphan_object` \| `dangling_row` \| `checksum_mismatch` \| `unexpected_local_file` |
+| `kind` | TEXT | `orphan_object` \| `dangling_row` \| `checksum_mismatch` \| `unexpected_local_file` \| `missing_local_file` \| `key_mismatch` |
 | `subject` | TEXT | Object key or clip path |
 | `detail` | TEXT | |
 | `resolved_at` | REAL | Set only by an explicit, audited operator action |
+
+The six kinds are `lld/05` §5.1's list. Migration 0001's `CHECK` allowed only the first four,
+so `missing_local_file` — which J1 records when a row points at footage that is already gone —
+could not be written at all. Migration 0002 rebuilds the table with the full set; there is no
+down migration, per [INV-8](../invariants.md).
 
 ### 2.10 `system_events`
 

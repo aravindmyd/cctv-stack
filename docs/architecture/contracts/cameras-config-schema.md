@@ -53,8 +53,9 @@ defaults:
     enabled: true
     retain_days: 30                       # Frigate-side snapshot retention
   clip:
-    pre_roll_s: 5                         # footage before the event starts
-    post_roll_s: 10                       # footage after the event ends
+    pre_roll_s: 5                         # footage before the review starts
+    post_roll_s: 10                       # footage after the review ends
+    visit_gap_s: 40                       # quiet period that closes a visit (Frigate cutoff_time)
   retention:
     local_days: 90                        # OUR canonical clip retention on disk
     cloud_days: 60                        # OUR cloud retention
@@ -136,8 +137,11 @@ both.
 | `record.mode` | enum | `motion` | `motion`\|`continuous`\|`alerts`\|`detections`\|`off` | Maps to Frigate `record:` retention blocks (§4) |
 | `snapshots.enabled` | bool | `true` | — | Frigate snapshots |
 | `snapshots.retain_days` | int | 30 | ≥ 1 | Frigate-side snapshot retention |
-| `clip.pre_roll_s` | float | 5 | 0–60; *warn* above 30 | Footage included **before** `event.start_time`, so the clip shows what led up to the detection |
-| `clip.post_roll_s` | float | 10 | 0–120 | Footage included **after** `event.end_time`, so the clip does not cut off mid-action |
+| `clip.pre_roll_s` | float | 5 | 0–60; *warn* above 30 | Footage included **before** `review.start_time`, so the clip shows what led up to the detection |
+| `clip.post_roll_s` | float | 10 | 0–120 | Footage included **after** `review.end_time`, so the clip does not cut off mid-action |
+| `clip.visit_gap_s` | int | — (Frigate's own: 40 alert / 30 detection) | 5–3600 | The quiet period after which a visit is considered finished, applied to **both** severities. **Projected into Frigate** as `review.alerts.cutoff_time` and `review.detections.cutoff_time`. **Raising it is what keeps a subject who leaves and returns inside one clip** — and it delays every clip by the same amount, because we cannot materialise until the review closes. Unset means the key is not emitted and Frigate's own defaults apply |
+| `clip.severities` | list | `[alert, detection]` | ⊆ `{alert, detection}` | Which Frigate review severities become canonical clips. `[alert]` cuts volume substantially |
+| `clip.objects` | list | `[person]` | Must be ⊆ `detect.objects` | A review is clipped only if `data.objects` contains at least one of these |
 | `retention.local_days` | int | 90 | 1–3650 | **Our** canonical clip retention |
 | `retention.cloud_days` | int | 60 | 1–3650 | **Our** cloud retention |
 | `retention.upload` | bool | `true` | — | `false` → `SKIPPED_BY_POLICY`; clips are still retained locally, never deleted early |
@@ -162,7 +166,7 @@ output.
 
 | `cameras.yml` | Generated Frigate key |
 |---|---|
-| `site.timezone` | `timezone` (top level) |
+| `site.timezone` | **Not passed to Frigate, deliberately.** Frigate 0.18 removed its top-level `timezone` key and rejects the entire config — starting in safe mode with no cameras — if one is present. Frigate's own zone comes from the container `TZ` ([ADR-0017](../../adr/0017-time-handling.md) treats the two as independently configured, and a disagreement is a `doctor.sh` check). Our clip paths are rendered from `site.timezone` |
 | `camera.rtsp.main` | `cameras.<name>.ffmpeg.inputs[0].path` (roles: `record`) |
 | `camera.rtsp.sub` | `cameras.<name>.ffmpeg.inputs[1].path` (roles: `detect`) |
 | `detect.enabled` | `cameras.<name>.detect.enabled` |
@@ -172,7 +176,9 @@ output.
 | `detect.min_score` | `cameras.<name>.objects.filters.<label>.min_score` (per tracked label) |
 | `record.mode` | `cameras.<name>.record:` retention blocks (below) |
 | `snapshots.*` | `cameras.<name>.snapshots.*` |
-| `clip.*` | **Not passed to Frigate.** Used by the clip-worker to build the fetch range ([ADR-0015](../../adr/0015-clip-boundaries-and-padding.md)) |
+| `clip.pre_roll_s`, `clip.post_roll_s` | **Not passed to Frigate.** Used by the clip-worker to build the fetch range ([ADR-0015](../../adr/0015-clip-boundaries-and-padding.md)) |
+| `clip.visit_gap_s` | `cameras.<name>.review.alerts.cutoff_time` **and** `.review.detections.cutoff_time`. It defines what a visit *is*, so Frigate must own it — filtering it at our layer would be too late |
+| `clip.severities`, `clip.objects` | **Not passed to Frigate.** Consumed by the clip-worker as a filter on incoming review items. Deliberate: Frigate's own review list stays complete, so an operator browsing Frigate sees everything while we only pay to store what they asked for. Changing these never requires regenerating Frigate's config |
 | `retention.*` | **Not passed to Frigate.** Consumed by our services via `state.db` |
 | `notify.*` | **Not passed to Frigate.** Consumed by `status-collector` |
 | host profile | `ffmpeg.hwaccel_args`, `detectors:`, `model:` |
@@ -210,7 +216,6 @@ mqtt:
   user: "{FRIGATE_MQTT_USER}"
   password: "{FRIGATE_MQTT_PASSWORD}"
 
-timezone: Australia/Sydney
 auth:
   enabled: true
 

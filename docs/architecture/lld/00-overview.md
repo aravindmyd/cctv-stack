@@ -193,7 +193,7 @@ effect. A knob with no explanation is a knob nobody will dare change.
 |---|---|---|
 | Unit | Path function, config validation, backoff, state transitions | Pure functions, property tests |
 | Contract | Frigate API/MQTT parsing | Recorded fixtures from a real Frigate instance; parser tolerance tests with unknown fields |
-| Integration | Full pipeline | `dev-synthetic` profile + MinIO; synthetic RTSP source generates deterministic events |
+| Integration | Full pipeline | `dev-synthetic` profile + RustFS ([ADR-0019](../adr/0019-rustfs-as-s3-test-double.md)); synthetic RTSP source generates deterministic events |
 | Invariant | Each of INV-1…INV-13 | A dedicated test per invariant, named after it |
 | Chaos | Crash safety | Kill -9 at each step of the materialise and upload sequences; assert no loss and no duplication |
 | Migration | Schema evolution | Apply the full chain to a snapshot from every released version |

@@ -1,6 +1,8 @@
 # Runbook: Recover failed uploads
 
-> **Status:** 🚧 Planned.
+> **Status:** ✅ Implemented for the uploader itself (`/health`, `/admin/queue`, `/admin/retry`).
+> The aggregate `/status` page in §1 and the cleanup-dependent parts of §5 and §7 arrive with
+> those services (M4/M5); `/admin/verify` is not built — see §4.1.
 > **Time:** 5 minutes to diagnose, longer to actually fix.
 
 Clips are not reaching Backblaze B2, or the queue is not draining. This runbook tells you
@@ -22,21 +24,21 @@ So: diagnose calmly, and do not reach for the force-delete option.
 ## 1. What does the system say?
 
 ```bash
-curl -s http://<host>:8080/status | jq '{answer, backlog, storage}'
+# The uploader's own view. The aggregate `/status` page arrives with M5 (§2 of
+# service-contracts). The port is published on loopback only.
+curl -s http://127.0.0.1:8082/health | jq '{state, summary}'
+curl -s http://127.0.0.1:8082/admin/queue -H "Authorization: Bearer $INTERNAL_API_TOKEN" \
+  | jq '{pending, uploading, retry_wait, failed_permanent, uploaded_24h, oldest_pending_age_s}'
 ```
 
 ```json
 {
-  "answer": "Recording is working. Cloud backup stalled 47 minutes ago.",
-  "backlog": {
-    "pending": 3,
-    "uploading": 1,
-    "retry_wait": 0,
-    "failed_permanent": 0,
-    "oldest_pending_age_s": 2820,
-    "clips_overdue_retention": 0
-  },
-  "storage": { "free_bytes": 318342512640, "projected_days_to_full": 412 }
+  "pending": 3,
+  "uploading": 1,
+  "retry_wait": 0,
+  "failed_permanent": 0,
+  "uploaded_24h": 214,
+  "oldest_pending_age_s": 2820
 }
 ```
 
@@ -45,7 +47,9 @@ curl -s http://<host>:8080/status | jq '{answer, backlog, storage}'
 | `pending` high, `failed_permanent` 0, rising | Backlog draining slower than clips arrive, or stuck | §2 |
 | `failed_permanent` > 0 | At least one clip will not retry | §4 |
 | `oldest_pending_age_s` > 6 h | Serious | §2 |
-| `clips_overdue_retention` > 0 | **Clips past their retention date are being held** | §5 |
+| `state` is `DEGRADED` | Something is wrong but uploads still work | §2 |
+| `state` is `UNHEALTHY` | Stop and read the failing check first | §2 |
+| `state` is `DISABLED` | **No bucket is configured.** Nothing is being backed up, by choice | `.env` → `CCTV_STORAGE_BUCKET` |
 | Everything zero and `uploaded_24h` healthy | Nothing is wrong | — |
 
 ---
@@ -53,28 +57,32 @@ curl -s http://<host>:8080/status | jq '{answer, backlog, storage}'
 ## 2. Find the actual error
 
 ```bash
-docker compose exec uploader curlie localhost:8082/admin/queue
+curl -s http://127.0.0.1:8082/admin/queue -H "Authorization: Bearer $INTERNAL_API_TOKEN" \
+  | jq '.oldest_pending, .failed'
 docker compose logs --tail=200 uploader | grep -E '"level":"(ERROR|CRITICAL)"'
 ```
 
-The logs are JSON. Look at `last_error_class` on the failed clips — it tells you
-everything:
+The logs are JSON. Look at `last_error_class` on the stuck clips — it tells you
+everything. There are **six** classes, because `clips.last_error_class` is a closed set in
+schema; the specific cause is in the `last_error` message and in the audit log.
 
-| `error_class` | Meaning | Fix |
-|---|---|---|
-| `transient` | Network, `5xx`, timeout | Wait. This resolves itself, with backoff up to 1 hour |
-| `throttled` | Rate limited | Wait. The uploader applies a global pause |
-| `auth` | **Credentials rejected** | §3 |
-| `not_found` | **Bucket does not exist** | §3 |
-| `quota` | Cap reached, or a payment problem | Resolve in the Backblaze console |
-| `checksum_mismatch` | The stored object does not match the local file | §4 |
-| `file_missing` | The database says a clip exists and it does not | §6 |
-| `invalid_request` | Our bug, or a malformed configuration | Report it. Include the logs |
+| `error_class` | Cause it covers | Retry? | Fix |
+|---|---|---|---|
+| `transient` | Network, `5xx`, timeout, throttling, and anything unrecognised | ✅, backoff to 1 h | Wait. This resolves itself |
+| `auth` | **Credentials rejected** (`401`/`403`) | ❌ | §3 |
+| `not_found` | **Bucket does not exist** | ❌ | §3 |
+| `quota` | Cap reached, or a payment problem | ✅, backoff to 6 h | Resolve in the Backblaze console |
+| `checksum` | The stored object does not match the local file | ❌ | §4.1 |
+| `unknown` | A `400` from the provider, or **the local file is missing** | ❌ | §4.1 for a checksum, §6 for a missing file |
+
+`throttled`, `file_missing` and `invalid_request` from `lld/04` §4 all map onto these six;
+the message and the audit event name which one it was.
 
 ### Backup paths are stale: nothing is reaching the cloud at all
 
 ```bash
-docker compose exec uploader curlie localhost:8082/health | jq '.checks[] | select(.state!="HEALTHY")'
+docker compose exec uploader curl -s localhost:8082/health \
+  | jq '.checks[] | select(.state!="HEALTHY")'
 ```
 
 ```json
@@ -101,7 +109,7 @@ These do **not** retry — by design. Retrying a rejected credential thousands o
 hour helps nobody.
 
 ```bash
-docker compose exec uploader curlie localhost:8082/health | jq '.checks[] | select(.name=="storage_credentials")'
+curl -s http://127.0.0.1:8082/health | jq '.checks[] | select(.name=="storage_credentials")'
 ```
 
 ```json
@@ -115,26 +123,31 @@ docker compose exec uploader curlie localhost:8082/health | jq '.checks[] | sele
    was rotated, use [`rotate-credentials.md`](rotate-credentials.md)
 2. **Does the bucket name match exactly?** The check is case-sensitive
    ```bash
-   grep B2_BUCKET .env
-   docker compose exec uploader curlie localhost:8082/admin/queue | jq '.bucket_expected'
+   grep CCTV_STORAGE_BUCKET .env
+   curl -s http://127.0.0.1:8082/health | jq '.checks[] | select(.name=="storage_reachable")'
    ```
 3. **Is the key scoped to the right bucket?** A key scoped to `cctv-home` cannot write to
    `cctv-parents-home`
 4. **Does the key have write permission?** Read-only keys upload nothing
 5. **Is the key ID correct?** `B2_KEY_ID` is the *keyID*, not the key *name*
 
-After fixing, reset the failed clips and retry:
+After fixing, reset the failed clips and retry. **A reason is mandatory**, and the request
+must name a clip, a camera, or a `since` — a bare retry of everything is refused on purpose:
 
 ```bash
-docker compose exec uploader curlie -X POST localhost:8082/admin/retry \
-  -H "X-Internal-Token: $INTERNAL_API_TOKEN" \
-  -d '{"reason":"rotated B2 application key after 403 errors"}'
+curl -s -X POST http://127.0.0.1:8082/admin/retry \
+  -H "Authorization: Bearer $INTERNAL_API_TOKEN" \
+  -d '{"camera":"front-door","reason":"rotated B2 application key after 403 errors"}'
+```
+
+```json
+{ "requeued": 37, "clip_ids": [8123, 8124] }
 ```
 
 Watch it drain:
 
 ```bash
-docker compose exec uploader watch -n2 'curlie -s localhost:8082/admin/queue | jq .counts'
+watch -n2 'curl -s http://127.0.0.1:8082/admin/queue -H "Authorization: Bearer $INTERNAL_API_TOKEN" | jq .counts'
 ```
 
 ---
@@ -145,23 +158,24 @@ docker compose exec uploader watch -n2 'curlie -s localhost:8082/admin/queue | j
 The local file is **still there** and is **not** going to be deleted.
 
 ```bash
-docker compose exec uploader curlie localhost:8082/admin/queue | jq '.failed_permanent'
+curl -s http://127.0.0.1:8082/admin/queue -H "Authorization: Bearer $INTERNAL_API_TOKEN" \
+  | jq '.failed_permanent, .failed'
 ```
 
 ```json
+[8123]
 [
-  { "clip_id": 8123, "camera": "front-door", "event_id": "1734567890.123456-abcxyz",
-    "start_time": 1757590365.12, "attempts": 12,
-    "last_error_class": "checksum_mismatch",
-    "last_error": "provider checksum 3a9f… != local sha256 3a2b…" }
+  { "id": 8123, "camera": "front-door", "path": "clips/front-door/2026/09/11/18-32-45.mp4",
+    "attempts": 12, "last_error_class": "checksum",
+    "last_error": "The provider stored different bytes…" }
 ]
 ```
 
 | `last_error_class` | What to do |
 |---|---|
-| `auth`, `not_found`, `quota`, `invalid_request` | Fix the cause, then `retry` |
-| `checksum_mismatch` | **Do not just retry.** Verify the local file first — §4.1 |
-| `file_missing` | §6 |
+| `auth`, `not_found`, `quota` | Fix the cause, then `retry` |
+| `checksum` | **Do not just retry.** Verify the local file first — §4.1 |
+| `unknown` with `UPLOAD_LOCAL_FILE_MISSING` in the audit log | §6 |
 | `transient` after 12 attempts | Something systematic. Check the provider status page, then `retry` |
 
 ### 4.1 Investigating a checksum mismatch
@@ -169,17 +183,21 @@ docker compose exec uploader curlie localhost:8082/admin/queue | jq '.failed_per
 Something is wrong with one of the two copies. Find out which before retrying.
 
 ```bash
-# Verify the local file
+# 1. Hash the local file, and compare it with what the database recorded.
 docker compose exec clip-worker sha256sum /data/clips/front-door/2026/09/11/18-32-45.mp4
 
-# Compare against what the database recorded
-docker compose exec uploader curlie -s localhost:8082/admin/queue \
-  | jq '.failed_permanent[] | select(.clip_id==8123) | .sha256'
-
-# Compare against what is actually in the cloud
-docker compose exec uploader curlie -X POST localhost:8082/admin/verify \
-  -H "X-Internal-Token: $INTERNAL_API_TOKEN" -d '{"clip_id":8123}'
+# 2. Compare with the object in the bucket. No download: every object carries its own
+#    sha256 in its metadata (cloud-object-layout §3.2).
+BUCKET=$(grep CCTV_STORAGE_BUCKET .env | cut -d= -f2)
+LOCATION=$(sed -n 's/^ *location: *//p' config/cameras.yml)
+aws s3api head-object --bucket "$BUCKET" --key "$LOCATION/clips/front-door/2026/09/11/18-32-45.mp4" \
+  | jq '.Metadata.sha256, .ContentLength'
 ```
+
+> `/admin/verify` (LLD 04 §9) is **not implemented**. It re-downloads the whole object, and
+> downloads are the one thing B2 bills for, so it is opt-in work rather than something that
+> should have appeared in M3. `aws s3api head-object` above answers the same question for
+> free, because every object carries its `sha256` in its own metadata.
 
 | Local matches DB? | Cloud object exists? | Conclusion |
 |---|---|---|
@@ -223,12 +241,26 @@ before it reaches that point.
 
 ## 6. `file_missing` — a consistency problem
 
-The database says a clip exists; the file does not. This means something outside the
-system interfered — a manual deletion, a restore that did not include clips, a disk that
-lost data, or a partially-completed `restore.sh`.
+The database says a clip exists; the file does not. The uploader records this as a
+`critical` audit event (`UPLOAD_LOCAL_FILE_MISSING`) and marks the clip `FAILED_PERMANENT`
+without deleting anything:
 
 ```bash
-docker compose exec cleanup curlie localhost:8083/health | jq '.checks[] | select(.name=="reconciliation")'
+docker compose exec uploader python - <<'PY'
+import sqlite3
+db = sqlite3.connect("/data/cctv.db")
+db.row_factory = sqlite3.Row
+for row in db.execute(
+    "SELECT at, message FROM system_events WHERE code = 'UPLOAD_LOCAL_FILE_MISSING' "
+    "ORDER BY at DESC LIMIT 20"
+):
+    print(dict(row))
+PY
+```
+
+```bash
+# Confirm the file really is absent, and see whether its neighbours are too.
+ls -l data/clips/front-door/2026/09/11/
 ```
 
 **Do not set these clips to `UPLOADED` to make the warning go away.** That is the one
@@ -245,7 +277,8 @@ Correct handling:
    alone — reconciliation will report it and retention will handle the row.
 3. **If it is in neither place:** the clip is genuinely lost. Record it and find out why.
    Run `./scripts/doctor.sh` and check the disk's health.
-4. Report it, even if you resolve it. Repeated `file_missing` indicates a real problem.
+4. Report it, even if you resolve it. Repeated `UPLOAD_LOCAL_FILE_MISSING` events mean a
+   real problem, not a one-off.
 
 ---
 
@@ -255,8 +288,8 @@ Correct handling:
 case where a clip can never be validly uploaded and the disk space is needed.
 
 ```bash
-docker compose exec cleanup curlie -X POST localhost:8083/admin/force-delete \
-  -H "X-Internal-Token: $INTERNAL_API_TOKEN" \
+docker compose exec cleanup curl -s localhost:8083/admin/force-delete \
+  -H "Authorization: Bearer $INTERNAL_API_TOKEN" \
   -d '{"clip_id": 8123, "reason": "B2 key permanently invalid for this bucket; duplicate footage exists on camera SD card until 2026-10-01"}'
 ```
 

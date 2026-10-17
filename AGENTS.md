@@ -9,9 +9,22 @@ Read this file first, then [`docs/index.md`](docs/index.md).
 
 | | |
 |---|---|
-| **Phase** | **PLANNING** |
-| **Implementation** | **Not started — do not write application code yet** |
+| **Phase** | **BUILDING — v0.3** |
+| **Implemented** | Detect → materialise at the canonical clip path → **upload to Backblaze B2, exactly once** → installable. M3 is certified against a live S3-compatible server. M4's **J1 local retention** runs as the `cleanup` service, with a health surface on 8083. Lint clean; 717 tests green, 19 skipped (18 need a live S3 endpoint, 1 needs the Docker daemon). |
+| **Not implemented** | M4's cloud retention (J2), reconciliation (J3), housekeeping (J4), `force-delete` and the single-instance lock; the aggregate status page and alerting (M5); backup, upgrade (M7). One thing is deleted today — a clip whose upload is terminal-success and that is past `retention.local_days` — see [`docs/plans/backlog.md`](docs/plans/backlog.md) for exactly what is deferred and why. |
 | **Authority** | Design docs in `docs/` are the source of truth. Code follows docs, not the other way round. |
+
+> **Where things stand.** `src/cctv/` is the shared library plus the three entry points:
+> `cctv-clip-worker` (reviews → clips), `cctv-config` (`cameras.yml` → Frigate's config) and
+> `cctv-uploader` (clips → B2, with a persisted retry state machine).
+> `dev-synthetic/` is the camera-free harness and is **kept** — it is how the pipeline gets
+> exercised without a camera, and how it will run in CI. `spike/` is a throwaway measurement
+> harness and still goes once M1's exit criteria are met.
+>
+> **Cloud backup is opt-in and honest about it.** With `CCTV_STORAGE_BUCKET` unset the
+> uploader runs, uploads nothing, and reports `DISABLED` — a supported state rather than a
+> silent one. A *half*-configured bucket (a bucket with no key) exits `78` instead, because
+> that is a mistake rather than a choice.
 
 This repository is being designed as a *packaging-first* CCTV stack: a single
 deployable application that can be installed at any location by changing
@@ -63,6 +76,10 @@ cctv-stack/
 │   └── runbooks/              # operator procedures
 ├── compose.yml                # (planned) deployment boundary
 ├── .env.example               # (planned) location configuration template
+├── spike/                     # ⚠️ TEMPORARY — M1 verification harness, not product code
+│   ├── README.md              #    how to run it, and why it is throwaway
+│   ├── probe/probe.py         #    measures the contract's VERIFY items
+│   └── RESULTS.md             #    fill in, then delete the whole directory
 └── config/  services/  data/  # (planned) see docs/architecture/contracts/on-disk-layout.md
 ```
 
@@ -134,7 +151,15 @@ specified in the linked design doc.
 | `./uninstall.sh` | Stop and remove containers, keep data | planned | [`lld/07`](docs/architecture/lld/07-installer-and-host-profiles.md) |
 | `./backup.sh` | Back up config + database + upload state | planned | [`lld/08`](docs/architecture/lld/08-backup-and-restore.md) |
 | `docker compose up -d` | Start the stack directly | planned | [`hld.md`](docs/architecture/hld.md) |
+| `tests/integration/run.sh` | Run the live integration suite against RustFS (starts and stops it) | **built** | [`tests/integration/README.md`](tests/integration/README.md) |
+| `tests/e2e/run.sh` | Run the synthetic camera → Frigate review → canonical clip pipeline | **built** | [`tests/e2e/run.sh`](tests/e2e/run.sh) |
 | `scripts/doctor.sh` | Diagnose a broken installation | planned | [`runbooks/install.md`](docs/runbooks/install.md) |
+
+Client-site packaging is specified in [`docs/plans/packaging.md`](docs/plans/packaging.md):
+`install.sh` remains the on-host entry point, but a client receives a signed release
+bundle and a digest-pinned image rather than a git checkout. CI lives in
+[`.github/workflows/`](.github/workflows/): pre-commit, unit, live integration, and the
+synthetic e2e pipeline.
 
 ---
 

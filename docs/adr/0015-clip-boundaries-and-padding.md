@@ -1,9 +1,46 @@
 # ADR-0015: Clip boundaries err outward — configurable pre-roll, post-roll, and a flush-aware fetch schedule
 
-- **Status:** Accepted
+- **Status:** Accepted — **confirmed by measurement (M1)**
 - **Date:** 2026-09-12
 - **Deciders:** project owner
 - **Related:** [INV-9](../architecture/invariants.md), [INV-14](../architecture/invariants.md), [`lld/02`](../architecture/lld/02-clip-worker.md), [`contracts/frigate-integration.md`](../architecture/contracts/frigate-integration.md)
+
+---
+
+## Confirmed by measurement
+
+Probed against Frigate **0.18.0-77a66e7** on 2026-09-12. Full evidence in
+[`spike/RESULTS.md`](../../spike/RESULTS.md).
+
+| Claim in this ADR | Measured | Verdict |
+|---|---|---|
+| An immediate fetch returns a truncated clip | **5 of 6 sampled lags returned `200` with a short clip**; full length only at lag **10 s** | ✅ **Confirmed, and worse than assumed** |
+| `-c copy` errs outward | mean **+1.88 s** per 10 s clip, **5/5 samples outward** | ✅ Confirmed |
+| An unavailable range is `400`, not `404` | **`400 "No recordings found"`** | ✅ Confirmed |
+| Audio survives the cut and remux | preserved as **AAC**, browser-playable | ✅ Confirmed |
+
+**The flush race was worse than the design assumed.** `segment_flush_grace_s` defaulted
+to 5 s; the measured floor is **10 s**. With the original default, essentially every clip
+fetched promptly after an event would have ended early — silently, on a green dashboard.
+The default is now **15 s**.
+
+This is the clearest vindication of doing M1 before M2: the defect would have shipped,
+and nothing in the design would have detected it.
+
+### A correction this ADR owes
+
+The gap detector as specified — packet-timestamp deltas above `max_gap_s` — **does not
+work**. A healthy 30 s clip showed a **3.55 s** packet gap against a **2.55 s** keyframe
+interval. The likely cause is that `-c copy` concatenation of recording segments produces
+timestamp discontinuities at segment joins, so a gap in PTS is not evidence of missing
+footage.
+
+Left as designed, `max_gap_s: 2.0` would have flagged nearly every clip as holed — and a
+signal that always fires carries no information. The criterion must change before it
+ships: detect gaps against Frigate's `recordings` table (a missing segment is a known
+fact, not an inference), or compare clip duration against the summed durations of the
+overlapping segments. Until then `max_gap_s` is **advisory only** and no health signal
+may depend on it. See [`lld/02`](../architecture/lld/02-clip-worker.md#9-configuration).
 
 ---
 

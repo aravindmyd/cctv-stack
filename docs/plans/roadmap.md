@@ -29,7 +29,56 @@ someone can install and operate this without asking us.
 
 ---
 
+## Execution phases
+
+The milestones above are the *release* plan. This is the *build* order — the same
+sequence as [`lld/00-overview.md`](../architecture/lld/00-overview.md) §1, with what each
+phase needs before it can start and how it is verified.
+
+| Phase | Deliverable | LLD | Milestone | Needs | Verifiable without a camera? |
+|---|---|---|---|---|---|
+| 0 | Review-lifecycle measurement — the last M1 gap | — | M1 | a camera | ❌ the point is real subjects |
+
+> **Phase 0 is deferred, not blocking.** It needs a subject in front of a camera, and the
+> owner cannot produce one at will. Nothing in phases 1–3 depends on the answer, so the
+> work continues and the measurement happens when it can. See
+> [`spike/RUN-SHEET.md`](../../spike/RUN-SHEET.md) for the camera-free alternative.
+| 1 | Shared library: config model, `paths`, `time` | [01](../architecture/lld/01-config-model.md) | M2 | — | ✅ pure functions, property tests |
+| 2 | State store: schema, migrations, claim query | [03](../architecture/lld/03-state-store.md) | M2 | 1 | ✅ temp-file SQLite |
+| 3 | clip-worker: trigger, fetch, remux, verify, sweep | [02](../architecture/lld/02-clip-worker.md) | **M2** | 1, 2 | ✅ `dev-synthetic` profile |
+| 4 | Uploader, `StorageAdapter`, B2 implementation | [04](../architecture/lld/04-uploader.md) | **M3** | 1, 2 | ✅ in-process fake adapter |
+| 5 | Cleanup, force-delete audit trail | [05](../architecture/lld/05-cleanup.md) | **M4** | 2, 4 | ✅ fake clock |
+| 6 | Health, `/status`, Gatus, notifications | [06](../architecture/lld/06-health-and-monitoring.md) | **M5** | 2 | ✅ fault injection |
+| 7 | Installer, host profiles, preflight | [07](../architecture/lld/07-installer-and-host-profiles.md) | **M6** | 1–6 | ⚠️ needs a clean host |
+| 8 | Backup, restore, upgrade, rollback | [08](../architecture/lld/08-backup-and-restore.md), [09](../architecture/lld/09-upgrade-and-versioning.md) | **M7** | 7 | ⚠️ needs a clean host |
+| 9 | Public release | — | **M8** | all | — |
+
+**Inverted dependencies — do these before the phase that needs them, not with it.**
+
+| Requirement | Needed by | Why it cannot wait |
+|---|---|---|
+| `cctv.paths` timezone argument and determinism tests | Phase 1 | [INV-5](../architecture/invariants.md) and [INV-12](../architecture/invariants.md) are only enforceable while there is one implementation; retrofitting a timezone argument after cleanup exists means auditing two call sites that have already diverged |
+| `dev-synthetic` source | Phase 3 | Phase 3's boundary, gap, and long-clip tests are all impossible without a deterministic video source. Building it with the worker risks "we will test it later" |
+| Migration `0001` written as a forward-only migration | Phase 2 | [INV-8](../architecture/invariants.md) requires forward migrations. Creating the schema with `create_all` and adding migrations later leaves no upgrade path to test |
+
+**Two ordering properties are deliberate and must not be rearranged.**
+
+- **Upload (4) before cleanup (5).** You must be able to back something up before you are
+  allowed to delete it. Reversing this makes [INV-1](../architecture/invariants.md)
+  untestable, because there is nothing for cleanup to consult.
+- **Phases 1–3 stand alone.** They produce local clips in a sane layout with no cloud
+  dependency — a useful system for an operator who does not want B2 at all. That is what
+  `retention.upload: false` and `SKIPPED_BY_POLICY` exist for.
+
+---
+
 ## M1 — A clip lands on disk (walking skeleton `0.1.0`)
+
+> **Status: four of twelve criteria already met by measurement**, not by building — the
+> flush delay (M1.9), the truncation reproduction (M1.10), cut precision (M1.11), and
+> audio survival (M1.12). Evidence: [`spike/RESULTS.md`](../../spike/RESULTS.md).
+> What remains is the **review-item lifecycle**, which is the one thing the harness could
+> not cover and which decides whether the trigger works at all.
 
 **Goal.** Prove the single riskiest assumption end to end, with the narrowest possible
 slice.
@@ -41,17 +90,30 @@ slice.
   database, no remux, no sweep
 - A minimal config: hand-written `cameras.yml`, hand-written Frigate config
 
-**Why first.** Because the entire architecture rests on one upstream fact: Frigate does
-not store event clips as files, and `GET /api/events/{id}/clip.mp4` cuts one on demand.
-If that stream is unusable, slow, or unreliable, the design changes. Everything else
-can be built on a proven assumption; nothing should be built on an unproven one.
+**Why first.** The architecture rests on one upstream fact: Frigate stores no clips as
+files, and a clip is cut on demand from recording segments. That fact is now **measured**
+— including the truncation race that would otherwise have shipped silently at a 5 s flush
+floor. What is *not* measured is the **review-item lifecycle**, and it has since become
+the single assumption the design pivots on: if reviews do not group a visit the way the
+source suggests, the trigger, the dedup key, and the path basis all change
+([ADR-0016](../adr/0016-clip-per-review-item.md)).
 
 **Exit criteria**
-- A real event produces a real `.mp4` at `clips/<camera>/YYYY/MM/DD/HH-MM-SS.mp4`
+- A real **review item** produces a real `.mp4` at `clips/<camera>/YYYY/MM/DD/HH-MM-SS.mp4`
 - The file plays and has a plausible duration
-- **The clip contains footage from before the event started and after it ended.** Verified
+- **The clip contains footage from before the review started and after it ended.** Verified
   by eye on a person walking past, using the `pre_roll_s` / `post_roll_s` defaults
-- **The segment flush delay is measured**: how long after `event.end_time` the final
+- **A returning subject is one clip.** A person who leaves the frame and returns inside
+  `clip.visit_gap_s` produces **one** file; the same person returning after it produces
+  **two**. This is the acceptance test for [ADR-0016](../adr/0016-clip-per-review-item.md)
+  and the only criterion the harness cannot fake
+- **A review left open by a Frigate restart is recovered.** Frigate clears in-progress
+  reviews at its own start-up, so the `type: end` message never arrives; the sweep must
+  still produce the clip. Verified by restarting Frigate mid-visit
+- **`type: end` is or is not reliable**, and the answer is recorded. If it is not, the
+  sweep stops being a backstop and becomes the primary path — which changes the health
+  model, not just the code
+- **The segment flush delay is measured**: how long after `review.end_time` the final
   recording segment becomes retrievable, and whether an immediate fetch truncates the
   clip. This is the unknown behind [INV-14](../architecture/invariants.md) and it decides
   the `segment_flush_grace_s` default
@@ -91,10 +153,13 @@ and Frigate's retention is a clock. This milestone makes the pipeline *correct*,
 anything else is layered on.
 
 **Exit criteria**
-- Delivering the same event five times produces one file and one row ([INV-7](../architecture/invariants.md))
+- Delivering the same review item five times produces one file and one row ([INV-7](../architecture/invariants.md))
 - **Clip boundaries are provably correct.** A synthetic source with a per-second colour
   code lets the first and last decoded frames be checked against
-  `event.start − pre_roll` and `event.end + post_roll` ([INV-14](../architecture/invariants.md))
+  `review.start − pre_roll` and `review.end + post_roll` ([INV-14](../architecture/invariants.md))
+- **A long review is fetched in full.** `fetch_timeout_s` scales with the review's
+  duration. A fixed 120 s timeout silently fails every review longer than two minutes,
+  which with `visit_gap_s` configured generously is every interesting one
 - **The flush race is closed**, demonstrated by reproducing truncation with
   `segment_flush_grace_s: 0` and showing it does not occur with the default
 - **A short clip is retried and then kept**, never discarded — the best result obtained is
@@ -211,15 +276,19 @@ components that do not yet exist.
 - B2 provisioning including the versioning and lifecycle traps
 - The verification phase, the diagnostics bundle, and `doctor.sh`
 - `uninstall.sh`
+- The signed release bundle, `versions.yml` digest pinning, and the offline archive
+  ([`packaging.md`](packaging.md), [ADR-0020](../adr/0020-release-artifacts-and-delivery-modes.md))
 
 **Why here.** Once every component works individually, packaging them is the remaining
 risk — and it is the risk PRD §1–§3 are entirely about.
 
 **Exit criteria**
-- On a clean Debian machine: `git clone && ./install.sh` reaches healthy, recording,
-  uploading, with no manual steps
-- On a Raspberry Pi 5: detection runs within the profile's stated limits, and the
-  installer warns clearly about the CPU limitation
+- On a clean Debian machine: a verified release bundle installs with `./install.sh` to
+  healthy, recording, uploading, with no git checkout and no Python on the host
+- On a Raspberry Pi 5: the arm64 bundle installs, detection runs within the profile's
+  stated limits, and the installer warns clearly about the CPU limitation
+- An air-gapped machine installs from the offline archive with no egress
+- A tampered bundle or a digest mismatch fails closed before any container starts
 - The compatibility matrix is honest — an unsupported host is refused with an
   explanation
 - Detection degrades to `unknown` rather than guessing wrong

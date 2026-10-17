@@ -24,9 +24,10 @@ clips/
 Several things are unstated by the PRD that must be decided for this to be
 implementable:
 
-1. **Where the time comes from.** Frigate speaks UTC epoch seconds and stores
-   recordings in UTC. The operator browses directories in local time. These disagree
-   for most of the world.
+1. **Where the time comes from.** Frigate speaks epoch seconds — an instant, which has
+   no timezone — and the operator browses directories in local time. These are different
+   kinds of value, and the rendering has to happen somewhere. See
+   [ADR-0017](0017-time-handling.md).
 2. **What happens on collision.** Two events from one camera can start in the same
    second.
 3. **Whether the cloud key matches.** If the local path and the object key differ in
@@ -37,7 +38,7 @@ implementable:
 
 ## Decision
 
-**Clip paths are a pure function of camera name, event start time, and the configured
+**Clip paths are a pure function of camera name, review start time, and the configured
 display timezone, and the cloud object key is `<location>/clips/` concatenated with
 the local path relative to `data/clips/`.**
 
@@ -50,9 +51,9 @@ Supporting decisions:
 
 | Concern | Decision |
 |---|---|
-| Basis time | Event **start** time |
-| Timezone | `site.display_timezone`, defaulting to `site.timezone`. UTC always stored in the database |
-| Collision | Append `-<last 6 chars of event id>`. Deterministic, never random, never a counter |
+| Basis time | **Review** start time (`review.start_time`), per [ADR-0016](0016-clip-per-review-item.md). Not the event's |
+| Timezone | `site.display_timezone`, defaulting to `site.timezone` — `Asia/Kolkata` for the first deployment. The stored value is an instant, which has no timezone ([ADR-0017](0017-time-handling.md)) |
+| Collision | Append `-<last 6 chars of review id>`. Deterministic, never random, never a counter |
 | Ownership | Exactly **one** implementation, in the shared library, used by clip-worker, uploader, cleanup, and restore. No component re-implements it |
 | Sidecar | `<name>.mp4.json`, written after the clip |
 | Separators | `HH-MM-SS` rather than `HH:MM:SS` — colons are invalid in Windows paths and hostile in URLs |
@@ -83,10 +84,14 @@ Supporting decisions:
   collision suffix. This is an addition, documented here and in
   [`on-disk-layout.md`](../architecture/contracts/on-disk-layout.md), and it only
   appears in the rare colliding case
-- **Two timezones in play** (UTC in the database, local in paths). This must be stated
-  wherever paths are handled, because confusing them is the classic bug. Mitigated by a
-  single path function that takes an explicit timezone, and by a test that walks a DST
-  boundary
+- **Two representations in play** (an unrendered instant in the database, a rendered
+  local time in the path). This must be stated wherever paths are handled, because
+  confusing them is the classic bug. Mitigated by a single path function that takes an
+  explicit timezone, and by a test that walks a DST boundary
+- **The basis time is now the review's, not the event's.** A review can start before its
+  first event is confirmed and can contain several events, so a path no longer
+  corresponds to any single event. `event_ids` in the sidecar preserves event-level
+  searchability
 - **Collision suffix is opaque.** `18-32-45-a1b2c3.mp4` means nothing to a human.
   Acceptable: the alternative is losing a clip or overwriting one
 - **Clock skew on the host** propagates into filenames. Detection is via NTP checks in

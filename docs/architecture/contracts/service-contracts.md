@@ -58,9 +58,20 @@ GET /health?strict=1 →  same body, stricter status code
 DISABLED    if every check is DISABLED (component deliberately off)
 UNHEALTHY   if any check is UNHEALTHY
 DEGRADED    if any check is DEGRADED
-HEALTHY     if every check is HEALTHY
+HEALTHY     if every check is HEALTHY or DISABLED
 UNKNOWN     if no check has been evaluated yet
 ```
+
+Two refinements the list above only implies, both learned from implementing it:
+
+* **A `DISABLED` check is neutral, not disqualifying.** A component with a deliberately-off
+dependency — cloud backup not configured, for instance — is neither all-`HEALTHY` nor
+all-`DISABLED`, and a literal reading would fall through to `UNKNOWN`, which strict mode
+renders as `503`. Docker would then mark a perfectly intentional deployment permanently
+unhealthy.
+* **`UNKNOWN` is a `503` in both modes.** The status-code table below does not list it, which
+is an omission rather than a licence: "we cannot tell" must never read as `200`, or a
+component that has never evaluated a single check looks fine to every monitor.
 
 ### 1.4 HTTP status codes
 
@@ -70,6 +81,7 @@ UNKNOWN     if no check has been evaluated yet
 | `DEGRADED` | `200` | `503` |
 | `UNHEALTHY` | `503` | `503` |
 | `DISABLED` | `200` | `200` |
+| `UNKNOWN` | `503` | `503` |
 
 `DEGRADED` returning `200` by default is deliberate: a backlog is worth surfacing
 but is not a reason for Docker to consider the container dead. Monitoring uses
@@ -80,9 +92,16 @@ but is not a reason for Docker to consider the container dead. Monitoring uses
 | Component | Checks |
 |---|---|
 | clip-worker | `state_db`, `frigate_api`, `mqtt`, `clips_dir_writable`, `retention_headroom`, `sweep_lag`, `clip_quality`, `clip_gaps`, `flush_pressure` |
-| uploader | `state_db`, `storage_reachable`, `storage_credentials`, `local_files_readable`, `upload_staleness`, `backlog_age` |
+| uploader | `state_db`, `storage_reachable`, `storage_credentials`, `local_files_readable`, `upload_staleness`, `backlog_age`, `failed_permanent`, `upload_verification` |
 | cleanup | `state_db`, `clips_dir`, `storage_reachable`, `last_run`, `clips_overdue_retention` |
 | status-collector | `state_db`, `frigate_api`, `mqtt`, `collector_freshness` |
+
+> **Implementation note (v0.4.0, J1 only).** The `cleanup` service implements `state_db`,
+> `clips_dir`, `last_run` and `clips_overdue_retention`, plus a `disk_free` check from `lld/05`
+> §9. It reports `storage_reachable` as **`DISABLED`** — cloud retention (J2) does not exist
+> yet, and an unimplemented check must never read as a check that passed. `DISABLED` is neutral
+> in `derive_state`, so the gap is stated without making the component look broken. The
+> `POST /admin/force-delete` route below is likewise not built yet.
 
 ### 1.6 Mandatory machine codes
 
@@ -104,6 +123,8 @@ is a breaking change requiring a migration note.
 | `STORAGE_STALE` | No successful upload within the window |
 | `BACKLOG_AGING` | Oldest pending clip exceeds the threshold |
 | `UPLOAD_FAILED_PERMANENT` | At least one clip will not retry |
+| `UPLOAD_LOCAL_FILE_MISSING` | A clip in a held state has no file on disk — the database and the disk disagree |
+| `UPLOAD_UNVERIFIED` | An upload completed but no provider checksum could be compared against the local file. An unverified backup is not a backup |
 | `DISK_PRESSURE` | Free space below the warning threshold |
 | `DISK_CRITICAL` | Free space below the critical threshold, or projected to fill within N days |
 | `CLIPS_OVERDUE_RETENTION` | Clips held past retention because uploads have not succeeded |
@@ -207,7 +228,7 @@ Layout requirement, in order:
 │  Backup     3 pending, oldest 42m · last success 42m ago     │
 │  Retention  90d local / 60d cloud · next run in 14m          │
 │                                                              │
-│  Frigate UI  →  http://host:8971                             │
+│  Frigate UI  →  https://host:8971                            │
 │  Monitoring  →  http://host:3001                             │
 └──────────────────────────────────────────────────────────────┘
 ```
@@ -266,8 +287,8 @@ compose network, never published.
 | Service | Endpoint | Purpose |
 |---|---|---|
 | uploader | `GET /admin/queue` | Dump the queue summary and the oldest N pending/failed clips |
-| uploader | `POST /admin/retry` | Reset `FAILED_PERMANENT` → `PENDING` for a filter (`camera`, `since`) |
-| uploader | `POST /admin/verify` | Stream-verify one uploaded clip against its `sha256` |
+| uploader | `POST /admin/retry` | Reset `FAILED_PERMANENT` → `PENDING` for a filter (`clip_id`, `camera` or `since`, plus a mandatory `reason`) |
+| uploader | `POST /admin/verify` | Stream-verify one uploaded clip against its `sha256`. **Not implemented** — it is the only operation here that costs egress. `aws s3api head-object` answers the same question from the object's own metadata |
 | cleanup | `POST /admin/force-delete` | Delete a specific un-uploaded clip. Body: `{clip_id, reason}`. Audited |
 | clip-worker | `POST /admin/rematerialise` | Re-fetch one event by id (used after a transient Frigate failure) |
 | clip-worker | `POST /admin/unpin-all` | Release all held pins (emergency disk relief in Frigate) |

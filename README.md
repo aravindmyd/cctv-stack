@@ -4,10 +4,19 @@ A packaging-first, self-hosted CCTV system. Clone it, configure it, run one
 script, and you have a working system with local recording, event clips, cloud
 backup, retention, and health monitoring.
 
-> **Status: 📐 Planning.** The design is being written before any application
-> code. Start with [`AGENTS.md`](AGENTS.md), then [`docs/index.md`](docs/index.md).
+> **Status: ✅ v0.3 — detect, materialise, upload, and local retention.** A camera sees a
+> person, the clip is materialised at its canonical path, and the uploader pushes it to
+> Backblaze B2 exactly once when storage is configured. The cleanup service deletes a local
+> clip only after its upload is terminal-success, so INV-1 holds in code rather than by
+> omission.
 >
-> Nothing in this README is implemented yet. It describes the target experience.
+> **Not built yet: cloud retention and reconciliation, the aggregate status page and
+> alerting, the one-command installer, and backup/upgrade.** What is deferred, and why, is
+> tracked in [`docs/plans/backlog.md`](docs/plans/backlog.md). The client-site delivery
+> plan — a signed release bundle around a digest-pinned image — is in
+> [`docs/plans/packaging.md`](docs/plans/packaging.md).
+>
+> Start with [`AGENTS.md`](AGENTS.md), then [`docs/index.md`](docs/index.md).
 
 ---
 
@@ -32,30 +41,50 @@ New machine
     Complete CCTV Stack
 ```
 
-## Target quickstart
+## Quickstart
 
 ```bash
 git clone <repository> cctv-stack
 cd cctv-stack
-
-./install.sh          # guided setup: detects host, asks for cameras, writes config
+./install.sh
 ```
 
-`install.sh` validates prerequisites, detects the host profile (architecture,
-GPU, accelerator, storage), interviews you for cameras and credentials, generates
-all configuration, starts the stack, waits for health, and prints the URLs.
+The first run stops and asks, because two things are values only you know: your camera RTSP
+URLs (in `.env`) and your camera names (in `config/cameras.yml`). Run it again and it
+validates, builds, generates Frigate's config from yours, starts the stack, and waits until
+Frigate answers.
 
-## What you get
+Clips land at `./data/clips/<camera>/YYYY/MM/DD/HH-MM-SS.mp4`, each with a `.json` sidecar
+carrying the review it came from, its event ids, coverage and hash.
 
-| Component | Responsibility |
-|---|---|
-| **Frigate** | Camera ingest, object detection, recording, review. Its own web UI is kept for live view and playback. |
-| **clip-worker** | Materialises completed events into the canonical `clips/` tree with metadata. |
-| **state-store** | Durable SQLite state: clips, upload queue, retries, health snapshots. |
-| **uploader** | Uploads clips to Backblaze B2 via a storage adapter, with a persisted retry state machine. |
-| **cleanup** | Enforces local (90d) and cloud (60d) retention. Never deletes un-uploaded clips. |
-| **status-collector** | Aggregates component + camera health into one answer to *"is my CCTV working?"* |
-| **Uptime Kuma** | The monitoring dashboard and alerting (ntfy, Telegram). We do not build a UI for this. |
+A clip appears **after** the visit ends, not during it: Frigate keeps counting activity
+until the person has been gone for the alert cutoff. There is no partial clip by design —
+cutting an open review would capture half a visit with no way to extend it later.
+
+## What is here
+
+| Component | State | Responsibility |
+|---|---|---|
+| **Frigate** | ✅ running | Camera ingest, object detection, recording, and review segmentation. Its own web UI is kept for live view and playback. |
+| **clip-worker** | ✅ running | Materialises completed reviews into the canonical `clips/` tree, with metadata. |
+| **state-store** | ✅ running | Durable SQLite state: cameras, clips, coverage, checksums, sweep watermark. |
+| **config generator** | ✅ running | `cameras.yml` → Frigate's config. One source of truth (INV-3). |
+| **uploader** | ✅ running | Uploads clips to Backblaze B2 via a storage adapter, with a persisted retry state machine. Reports `DISABLED` when no bucket is configured, and exits `78` on a half-configuration rather than pretending to work. |
+| **cleanup** | ✅ local retention | Enforces local retention and never deletes a clip whose upload is not terminal-success. Cloud retention (J2) and reconciliation (J3) are not built yet. |
+| **status-collector** | ⬜ not built | Aggregates component and camera health into one answer to *"is my CCTV working?"* |
+
+### Two inputs, one worker
+
+```text
+frigate/reviews (MQTT)  ──→  bounded queue  ──┐
+                                              ├──→  decide()  ──→  canonical clip
+GET /api/review (sweep)  ─────────────────────┘
+```
+
+Neither alone is enough. MQTT alone loses clips whenever the broker or the worker is down,
+and Frigate closes a review on restart **without publishing `end` at all**. The sweep alone
+works, but delays every clip by its interval. So MQTT is the latency optimisation and **the
+sweep is the guarantee** — the same review arriving twice produces one clip, not two.
 
 ## Principles
 
@@ -73,6 +102,7 @@ all configuration, starts the stack, waits for health, and prints the URLs.
 - [`docs/architecture/hld.md`](docs/architecture/hld.md) — high-level design
 - [`docs/architecture/invariants.md`](docs/architecture/invariants.md) — rules that must never break
 - [`docs/plans/roadmap.md`](docs/plans/roadmap.md) — what gets built, in what order
+- [`docs/plans/backlog.md`](docs/plans/backlog.md) — what is deliberately deferred, and why
 - [`docs/plans/open-questions.md`](docs/plans/open-questions.md) — undecided items
 
 ## License

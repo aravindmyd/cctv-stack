@@ -20,6 +20,7 @@ The map of everything we know and everything we have decided.
 | Product requirements | ✅ Complete — [`prd.md`](prd.md) |
 | Architecture and design | 📐 **Written, awaiting owner review** |
 | Implementation | ✅ **M1–M3 built, M4 J1 built** — detect → materialise → durable upload → local retention |
+| Release | ✅ **0.3.0** — published to PyPI and GHCR |
 | Client-site packaging | 📐 **Proposed** — [`plans/packaging.md`](plans/packaging.md) |
 
 The design set is complete: 4 entry points, 1 HLD, 1 invariant list, 6 contracts,
@@ -52,12 +53,13 @@ Only two open questions touch M1, and both are answered by running the probe: **
 ### If you are an AI agent starting fresh
 
 1. [`../AGENTS.md`](../AGENTS.md) — repo rules, invariants summary, conventions
-2. [`glossary.md`](glossary.md) — vocabulary, **read this before writing anything**
-3. [`architecture/hld.md`](architecture/hld.md)
-4. [`architecture/invariants.md`](architecture/invariants.md)
-5. [`architecture/contracts/`](architecture/contracts/) — the interfaces you must honour
-6. The LLD for the component you are changing
-7. Relevant ADRs for *why*
+2. [`../CONTRIBUTING.md`](../CONTRIBUTING.md) — current state, development, CI and release process
+3. [`glossary.md`](glossary.md) — vocabulary, **read this before writing anything**
+4. [`architecture/hld.md`](architecture/hld.md)
+5. [`architecture/invariants.md`](architecture/invariants.md)
+6. [`architecture/contracts/`](architecture/contracts/) — the interfaces you must honour
+7. The LLD for the component you are changing
+8. Relevant ADRs for *why*
 
 ### If you are a new human contributor
 

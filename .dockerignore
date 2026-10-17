@@ -1,0 +1,49 @@
+# The build context is sent to the Docker daemon before any layer is built, so a secret
+# that is not COPYed into the image is still a secret sent over a socket and cached on a
+# build host. INV-2 says no secret in a Docker image layer; this file keeps them out of
+# the context as well.
+#
+# The Dockerfile only needs `pyproject.toml`, `uv.lock`, `src/` and its own base layers.
+
+# VCS and CI
+.git
+.github
+
+# Location configuration and secrets. `cameras.yml` holds substituted RTSP credentials;
+# `.env` holds the credentials themselves.
+.env
+.env.*
+config
+
+# State and generated footage (INV-4: it lives on the host, never in an image)
+data
+dev-synthetic/data
+dev-synthetic/fixture
+dev-synthetic/frigate
+
+# Development-only and throwaway harnesses
+.venv
+spike
+dev-synthetic
+tests
+docs
+
+# Tool caches
+**/__pycache__
+*.py[cod]
+.pytest_cache
+.ruff_cache
+.mypy_cache
+.uv-cache
+
+# Editor and OS noise
+.DS_Store
+.vscode
+
+# Files not needed by the build
+*.md
+.gitignore
+.pre-commit-config.yaml
+compose.yml
+install.sh
+Dockerfile.dockerignore

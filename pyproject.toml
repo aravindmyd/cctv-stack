@@ -1,0 +1,101 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "cctv-stack"
+version = "0.3.0"
+description = "A packaging-first self-hosted CCTV stack built on Frigate."
+requires-python = ">=3.12"
+license = { text = "Apache-2.0" }  # OQ-2 recommends this; confirm before 1.0.0
+# Phase 1 is deliberately near-stdlib-only. Frigate/MQTT clients, the B2 SDK and the
+# HTTP stack arrive with the phases that need them, so the foundation can be tested
+# without a network.
+dependencies = [
+    # NOT optional: slim container images often ship without /usr/share/zoneinfo, and
+    # `ZoneInfo("Asia/Kolkata")` then raises at runtime. INV-12 makes this load-bearing.
+    "tzdata>=2024.1",
+    # `cameras.yml` is the single source of truth (INV-3), so parsing YAML is not optional.
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+# Kept alongside `[dependency-groups]` so that a contributor with only pip can still
+# install the tooling: `pip install -e .[dev]`. Both paths are exercised in CI, because
+# a fallback that is not tested is a fallback that is broken. See ADR-0018.
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+]
+# Optional on purpose. A sweep-only deployment polls Frigate's API and needs no broker at
+# all, so making the MQTT client mandatory would mean installing a library the process has
+# no use for. `cctv.mqtt` imports it lazily and raises `MqttUnavailable` with an actionable
+# message when it is absent, rather than failing at import time with a bare ImportError.
+mqtt = [
+    "paho-mqtt>=2.1",
+]
+# Optional for the same reason as `mqtt`: a deployment with no cloud backup should not have
+# to install an S3 SDK it will never call. `cctv.storage` imports `boto3` lazily and raises
+# `StorageBackendMissingError` with an actionable message when it is absent, rather than
+# failing at import time.
+#
+# One dependency covers both targets: Backblaze B2's S3-compatible endpoint and the RustFS
+# container the integration suite uses as its stand-in (ADR-0005, ADR-0019).
+storage = [
+    "boto3>=1.34",
+]
+
+[project.scripts]
+# The image puts these on PATH (LLD 00 §2.2). They run `python -m`-equivalent entry points
+# rather than `uv run`: resolving an environment at container start-up would make the first
+# clip of the day depend on a network round trip (ADR-0018).
+cctv-clip-worker = "cctv.worker:main"
+cctv-config = "cctv.config_cli:main"
+cctv-uploader = "cctv.uploader:main"
+cctv-cleanup = "cctv.cleanup:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+]
+
+[tool.uv]
+# uv is the development, CI and build-stage toolchain. It is deliberately NOT a runtime
+# dependency: container entrypoints run `python -m cctv.<service>`, never `uv run`.
+# Resolving or creating an environment inside a container at start-up would make the
+# first clip of the day depend on a network round trip (ADR-0018).
+required-version = ">=0.5.0"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/cctv"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-q --strict-markers"
+# `tests/integration` needs a live S3-compatible endpoint, so it is skipped unless one is
+# configured (see tests/integration/README.md). Registered rather than free-form because
+# `--strict-markers` is on: an unregistered marker is a typo that silently disables a test.
+markers = [
+    "integration: needs a live S3-compatible endpoint, or Docker for the mount check",
+    "slow: the full-scale runs (8 workers x 500 clips); opt in with CCTV_TEST_SLOW=1",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+# `extend-exclude`, not `exclude`: assigning `exclude` replaces ruff's defaults outright,
+# which silently un-excludes `.venv` and makes the tool scan — and `ruff format` rewrite —
+# every installed package. `.venv` is repeated here as an explicit belt-and-braces entry,
+# because the failure mode is destructive and silent.
+# `spike/` is the throwaway measurement harness. AGENTS.md §1 is explicit that it is
+# research, not product code, and it is deleted when M1 closes — so linting it would mean
+# maintaining a file whose only job is to be measured once and then removed.
+extend-exclude = ["spike/", ".venv/"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["E501"]

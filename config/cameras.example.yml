@@ -1,0 +1,91 @@
+# Camera configuration — the single source of truth (INV-3).
+#
+#   cp config/cameras.example.yml config/cameras.yml
+#
+# Everything Frigate needs is generated from this file:
+#
+#   cctv-config validate --cameras config/cameras.yml
+#   cctv-config generate --cameras config/cameras.yml --out config/frigate/config.yml
+#
+# `docker compose up` does the second one for you, in the `config` service.
+#
+# Secrets do not belong in this file. `${VAR}` is substituted from the environment and an
+# *unset* variable is a hard error rather than an empty string, so a typo fails at start-up
+# instead of producing a camera that silently never connects.
+
+site:
+  # Appears in every clip path and, later, in cloud object keys — so it is load-bearing.
+  # Lowercase, 1–32 characters: a-z, 0-9 and interior hyphens.
+  location: home
+
+  # Never guessed from the host. A container's TZ is easy to get wrong, and wrong here means
+  # clips filed under the wrong hour (ADR-0017).
+  timezone: Asia/Kolkata
+
+# Frigate retains *its own* footage for this long. That window is the clip-worker's recovery
+# budget (INV-9): if the worker is down longer than the shortest window, the footage it needs
+# is already gone and no retry can recover it. The generator refuses to emit a shorter one
+# without an explicit override.
+min_headroom_days: 2
+
+# Applies to every camera unless the camera overrides it.
+defaults:
+  detect:
+    objects: [person]
+    # Frigate resizes each analysed frame to this. 1280x720 suits a 1080p main stream or a
+    # 720p sub-stream; going much higher costs CPU for no detection benefit, because the
+    # model itself runs at a fixed small size.
+    width: 1280
+    height: 720
+    fps: 5
+    min_score: 0.4
+
+  clip:
+    # How much footage either side of the activity the clip includes. Ours alone — Frigate
+    # has no equivalent, which is why we cut the range ourselves (ADR-0015).
+    pre_roll_s: 5
+    post_roll_s: 10
+
+    # Frigate's visit threshold: how long a person may be absent before the visit counts as
+    # over and the next appearance starts a new clip.
+    #
+    # Left unset on purpose, so Frigate's own defaults apply (40 s for alerts, 30 s for
+    # detections). Set it to take control of the boundary. Measured on real footage: gaps of
+    # 25 s and 35 s merge into one clip, gaps of 45 s and 75 s do not.
+    # visit_gap_s: 40
+
+    # `alert` is what a person becomes by default. Including `detection` also clips reviews
+    # that never rose to an alert.
+    severities: [alert, detection]
+    objects: [person]
+
+  record:
+    # How Frigate retains its own footage, which sets the recovery budget above.
+    # continuous | motion | alerts | detections | off
+    #
+    # `motion` is the usual choice: it records around activity rather than constantly, so the
+    # recovery window is measured in days rather than hours of disk.
+    mode: motion
+
+cameras:
+  front-door:
+    display_name: Front Door
+    enabled: true
+
+    rtsp:
+      # Read from .env. See `.env.example` for the matching `CAMERA_FRONT_DOOR_RTSP`.
+      main: ${CAMERA_FRONT_DOOR_RTSP}
+      # Optional, and worth having: detection on the camera's own sub-stream is far cheaper
+      # than decoding the main stream. Without it, detection runs on the main stream and the
+      # loader warns, because that cost shows up as CPU load rather than as an error.
+      sub: ${CAMERA_FRONT_DOOR_SUB}
+
+  # A second camera needs nothing here but a name and a URL pair. There is no per-camera
+  # code anywhere in the stack, and `if camera == "..."` is a change that gets rejected
+  # (AGENTS.md §9).
+  #
+  # gate:
+  #   display_name: Side Gate
+  #   rtsp:
+  #     main: ${CAMERA_GATE_RTSP}
+  #     sub: ${CAMERA_GATE_SUB}

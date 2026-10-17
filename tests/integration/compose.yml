@@ -1,0 +1,38 @@
+# The S3-compatible provider the live integration suite runs against.
+#
+# This is NOT part of the deployment (AGENTS.md §3). It exists so the uploader can be
+# exercised against a real S3 endpoint — real HTTP, real boto3, real object metadata and
+# checksums — instead of only the in-process `FakeAdapter` the unit tests use.
+#
+# Why RustFS and not MinIO (measured 2026-10-06):
+#
+#   MinIO's own registries stopped serving anonymous pulls — `quay.io/minio/minio` and Docker
+#   Hub `minio/minio` both return 401, `bitnami/minio` is gone, and the only remaining MinIO
+#   image is an archived Bitnami mirror that upstream may delete. RustFS is an actively
+#   maintained S3-compatible server that pulls without an account. Measured against it, our
+#   adapter gets a comparable `ChecksumSHA256` back (verified_by="sha256"), so the checksum
+#   path is genuinely exercised rather than skipped. See tests/integration/README.md and
+#   ADR-0019.
+#
+# Deliberate omissions:
+#   * **`latest` tag.** A moving tag, acceptable for a local fixture and pinned nowhere in
+#     this repo's releases (ADR-0014 covers our own images). Pin a digest if this ever runs
+#     unattended in CI.
+#   * **No volume.** Ephemeral on purpose: every run starts from an empty server, so a
+#     leftover object cannot make a later test pass for the wrong reason.
+#   * **Loopback only.** A test fixture has no business being reachable from the LAN.
+
+name: cctv-stack-integration
+
+services:
+  rustfs:
+    image: ${CCTV_TEST_STORAGE_IMAGE:-rustfs/rustfs:latest}
+    restart: "no"
+    environment:
+      RUSTFS_ACCESS_KEY: ${CCTV_TEST_STORAGE_KEY_ID:-cctv-integration}
+      RUSTFS_SECRET_KEY: ${CCTV_TEST_STORAGE_APPLICATION_KEY:-cctv-integration-secret}
+      # Quiet by default: the fixture's own chatter is noise around the test output.
+      RUSTFS_OBS_LOGGER_LEVEL: ${RUSTFS_OBS_LOGGER_LEVEL:-warn}
+    ports:
+      # 9000 is the S3 API (9001 is RustFS's console, deliberately not published).
+      - "127.0.0.1:${CCTV_TEST_STORAGE_PORT:-19000}:9000"

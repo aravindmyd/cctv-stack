@@ -1,0 +1,155 @@
+# The deployment boundary (AGENTS.md §3).
+#
+# Six services: a broker, a config generator, Frigate, the clip-worker, the uploader, and
+# cleanup. The generator is a *service* rather than a step in `install.sh` so that installing
+# never needs Python on the host — the image that generates the config is the same image that
+# runs from it, so the two cannot disagree about what a valid config is.
+#
+# Deliberate omissions, recorded so they read as decisions rather than oversights:
+#
+#   * **Port 5000 is never published.** Frigate resolves requests arriving on it as
+#     anonymous admin (integration contract §2). Publishing it would turn the whole stack
+#     into a remote admin bypass, and `auth.enabled: false` below is only safe *because* it
+#     is not published.
+#   * **The broker is not published either.** Nothing outside the compose network needs it,
+#     and an open broker on the LAN is how a camera feed ends up on someone else's dashboard.
+
+name: cctv-stack
+
+x-cctv-image: &cctv-image
+  image: ${CCTV_IMAGE:-cctv-stack:local}
+  build:
+    context: .
+
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2
+    restart: unless-stopped
+    volumes:
+      - ${CCTV_DATA_DIR:-./data}/mosquitto:/mosquitto/data
+
+  # Runs once, writes Frigate's config from config/cameras.yml, and exits. Frigate waits for
+  # it (INV-3: camera configuration exists in one place, everything else is generated).
+  config:
+    <<: *cctv-image
+    restart: "no"
+    command:
+      - cctv-config
+      - generate
+      - --cameras
+      - /config/cameras.yml
+      - --out
+      - /frigate/config.yml
+    env_file: [.env]
+    volumes:
+      # Read-only: this service reads our config and writes Frigate's. It has no business
+      # modifying the single source of truth, and a read-only mount makes that structural.
+      - ./config:/config:ro
+      - ./config/frigate:/frigate
+
+  frigate:
+    image: ${FRIGATE_IMAGE:-ghcr.io/blakeblackshear/frigate:stable}
+    restart: unless-stopped
+    # Docker's 64 MB default is the classic Frigate failure: detection works, then stops,
+    # with no error that points at shared memory.
+    shm_size: ${FRIGATE_SHM_SIZE:-256mb}
+    # Frigate needs time to close its recording segments. Killing it at the default 10 s
+    # loses the tail of the last segment, which is footage we then cannot fetch (INV-9).
+    stop_grace_period: 30s
+    depends_on:
+      config:
+        condition: service_completed_successfully
+      mosquitto:
+        condition: service_started
+    tmpfs:
+      - /tmp/cache
+    ports:
+      # Loopback only. The UI is for the operator standing at the machine.
+      - "127.0.0.1:${FRIGATE_UI_PORT:-8971}:8971"
+    volumes:
+      - ./config/frigate:/config
+      - ${CCTV_DATA_DIR:-./data}/media:/media/frigate
+    environment:
+      # Should match `site.timezone` in config/cameras.yml. Frigate uses this for its own
+      # presentation; our clip paths are derived from the config, not from here (ADR-0017).
+      TZ: ${TZ:-Asia/Kolkata}
+
+  clip-worker:
+    <<: *cctv-image
+    restart: unless-stopped
+    depends_on:
+      frigate:
+        condition: service_started
+      mosquitto:
+        condition: service_started
+    env_file: [.env]
+    environment:
+      CCTV_CONFIG_DIR: /config
+      CCTV_DATA_DIR: /data
+      # Named explicitly because this database is the *only* coordination between services
+      # (contract §1). Both writers must agree on it, and an implicit default that later
+      # changed would silently split the system in two.
+      CCTV_DB: /data/cctv.db
+      CCTV_FRIGATE_URL: http://frigate:5000
+      CCTV_MQTT_HOST: mosquitto
+      CCTV_MQTT_PORT: "1883"
+    volumes:
+      - ./config:/config:ro
+      - ${CCTV_DATA_DIR:-./data}:/data
+
+  # Turns canonical clips into durable cloud objects, exactly once (M3, LLD 04).
+  #
+  # It reads `clips/` **read-only**: the uploader has no business modifying or deleting a
+  # clip, and a bug that unlinked the only local copy of an un-uploaded clip would violate
+  # INV-1 at the worst possible moment. The nested mount is what makes that structural — the
+  # more specific path wins, so `/data` being writable (the database lives there) does not
+  # hand it write access to `/data/clips`.
+  uploader:
+    <<: *cctv-image
+    # `on-failure:5`, not `unless-stopped`. A half-finished `.env` (a bucket with no key)
+    # should produce a visibly exited container with a specific message, not a restart storm
+    # that hides the cause (service-contracts §7). A wrong *credential*, by contrast, does not
+    # crash: it starts, reports UNHEALTHY, and names the fix.
+    restart: on-failure:5
+    command: ["cctv-uploader"]
+    env_file: [.env]
+    environment:
+      CCTV_CONFIG_DIR: /config
+      CCTV_DATA_DIR: /data
+      CCTV_DB: /data/cctv.db
+      CCTV_UPLOADER_HEALTH_PORT: "8082"
+    ports:
+      # Loopback only. The admin endpoints are additionally behind INTERNAL_API_TOKEN, and
+      # nothing here is ever published to the LAN.
+      - "127.0.0.1:${UPLOADER_HEALTH_PORT:-8082}:8082"
+    volumes:
+      - ./config:/config:ro
+      - ${CCTV_DATA_DIR:-./data}:/data
+      - ${CCTV_DATA_DIR:-./data}/clips:/data/clips:ro
+
+  # Enforces local retention: a clip file is deleted only when its upload is
+  # terminal-success (M4 J1, lld/05). This is the one component allowed to destroy data.
+  #
+  # Unlike the uploader, it needs `/data` **writable**, and its clips directory must therefore
+  # NOT be mounted read-only — deleting is its job. What stops it deleting too much is not a
+  # mount flag but the enumerated-state query and four further guards in `src/cctv/cleanup.py`,
+  # each of which has a test. A read-only mount here would make the service useless while
+  # looking safer.
+  cleanup:
+    <<: *cctv-image
+    command: ["cctv-cleanup"]
+    # Same reasoning as the uploader: a configuration error must end as a visibly exited
+    # container with a specific message, not a restart storm that buries the cause.
+    restart: on-failure:5
+    env_file: [.env]
+    environment:
+      CCTV_CONFIG_DIR: /config
+      CCTV_DATA_DIR: /data
+      CCTV_DB: /data/cctv.db
+      CCTV_CLEANUP_HEALTH_PORT: "8083"
+    ports:
+      # Loopback only. Nothing here is ever published to the LAN.
+      - "127.0.0.1:${CLEANUP_HEALTH_PORT:-8083}:8083"
+    volumes:
+      - ./config:/config:ro
+      - ${CCTV_DATA_DIR:-./data}:/data

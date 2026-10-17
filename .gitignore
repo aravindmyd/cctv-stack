@@ -1,0 +1,56 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Environments
+.venv/
+venv/
+
+# Tool caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# uv.lock is deliberately COMMITTED — do not ignore it (ADR-0018).
+.uv-cache/
+
+# ---------------------------------------------------------------------------
+# Secrets and state. INV-2 and INV-4: no secret in the repository, and all state
+# lives under the host data directory rather than inside a container.
+# ---------------------------------------------------------------------------
+.env
+.env.local
+data/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+
+# Location configuration: the real cameras.yml holds substituted RTSP credentials, so it
+# is the site's file, not the repository's. `cameras.example.yml` is committed; this is not.
+config/cameras.yml
+
+# Generated Frigate config, plus Frigate's own runtime state, because the directory is
+# mounted as its /config.
+#
+# The whole directory rather than the one filename. The generated config.yml contains
+# substituted RTSP credentials (INV-2), and Frigate writes its SQLite database next to it —
+# so a filename allowlist would have to name every state file Frigate invents, and the one
+# that gets missed is a binary blob with a password in it. `config/gatus.generated.yml`
+# stays listed separately because it is only a config, not a directory:
+config/frigate/
+config/gatus.generated.yml
+config/frigate.generated.yml
+
+# macOS
+.DS_Store
+
+# spike/ is the throwaway M1 measurement harness: research, not product code. It is
+# deliberately ignored and is deleted once its VERIFY items are measurements.
+spike/
+
+# dev-synthetic/ is **committed**. It is the camera-free harness M2 requires and the
+# stack the e2e CI job runs. Its own .gitignore keeps the generated fixture, runtime
+# data and Frigate's state out of git while leaving the harness itself reviewable.

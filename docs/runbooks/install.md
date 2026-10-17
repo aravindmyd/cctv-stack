@@ -2,6 +2,12 @@
 
 > **Status:** 🚧 Planned. Written for an operator, not a developer.
 > **Time:** 15–30 minutes, plus event time.
+>
+> **Current state (v0.3).** The detect-and-confirm installer described below is M6 and is
+> not built yet. Today's flow is the two-run `./install.sh` in the README: the first run
+> creates `.env` and `config/cameras.yml`, you edit both, and the second run validates,
+> builds and starts the stack. Host-profile detection, the interview, B2 provisioning and
+> the full verification phase are the target described here.
 
 ---
 

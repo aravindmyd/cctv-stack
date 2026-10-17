@@ -143,7 +143,8 @@ worth keeping, and `spike/` is still scheduled for deletion.
 - **A colour-coded fixture** — one distinct colour per second, so a test can name the
   second it is looking at. Required by M2.13, "the first and last decoded frames match
   `start − pre_roll` and `end + post_roll`". A test pattern cannot express that.
-- **A CI job** that runs the pipeline against this stack. M2 requires it; nothing here
-  assumes a human.
-- **Digest pinning** for the three external images. The tags are pinned to versions, which
-  is enough for dev tooling, but `versions.yml` discipline applies to anything that ships.
+- ~~**A CI job**~~ — `tests/e2e/run.sh` runs this stack in
+  [`.github/workflows/e2e.yml`](../.github/workflows/e2e.yml).
+- **Digest pinning** for the three external images. `stable` is a moving tag, which is
+  acceptable for development tooling but not for a release; production references are
+  pinned by digest through `versions.yml` (ADR-0014).

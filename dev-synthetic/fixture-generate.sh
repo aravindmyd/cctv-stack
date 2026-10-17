@@ -35,12 +35,10 @@ echo "Generating ${DURATION}s of pattern into $OUT …"
 # Frigate vendors several ffmpeg builds and keeps them off PATH, at
 # `/usr/lib/ffmpeg/<version>/bin/ffmpeg`. Resolving the newest at runtime rather than
 # hardcoding a version keeps this working across Frigate upgrades.
-# Same architecture choice as reviews.sh: the standard image is published per architecture.
+# Same multi-arch image as reviews.sh (see the comment there for why `stable-standard-amd64`
+# is not used).
 if [[ -z "${FRIGATE_IMAGE:-}" ]]; then
-  case "$(uname -m)" in
-    arm64 | aarch64) FRIGATE_IMAGE="ghcr.io/blakeblackshear/frigate:stable-standard-arm64" ;;
-    *) FRIGATE_IMAGE="ghcr.io/blakeblackshear/frigate:stable-standard-amd64" ;;
-  esac
+  FRIGATE_IMAGE="ghcr.io/blakeblackshear/frigate:stable"
 fi
 IMAGE="$FRIGATE_IMAGE"
 FFMPEG="$(docker run --rm --entrypoint sh "$IMAGE" -c \

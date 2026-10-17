@@ -38,14 +38,11 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
-# Frigate's standard image is architecture-specific, so pick the tag that matches this
-# machine. Without this the harness only works on the machine it was written on, which is
-# exactly what an e2e job on an amd64 runner cannot tolerate. Override with FRIGATE_IMAGE.
+# `stable` is multi-arch. An earlier version picked `stable-standard-<arch>`, but the
+# amd64 variant does not exist in the registry (only the arm64 one did), so the harness
+# failed on CI with `manifest unknown`. Override with FRIGATE_IMAGE for a different build.
 if [[ -z "${FRIGATE_IMAGE:-}" ]]; then
-  case "$(uname -m)" in
-    arm64 | aarch64) FRIGATE_IMAGE="ghcr.io/blakeblackshear/frigate:stable-standard-arm64" ;;
-    *) FRIGATE_IMAGE="ghcr.io/blakeblackshear/frigate:stable-standard-amd64" ;;
-  esac
+  FRIGATE_IMAGE="ghcr.io/blakeblackshear/frigate:stable"
   export FRIGATE_IMAGE
 fi
 

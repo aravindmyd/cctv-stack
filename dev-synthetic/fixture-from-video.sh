@@ -52,7 +52,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
-IMAGE="ghcr.io/blakeblackshear/frigate:stable-standard-arm64"
+IMAGE="${FRIGATE_IMAGE:-ghcr.io/blakeblackshear/frigate:stable}"
 OUT="detect.ts"
 GAP_S="${GAP_S:-50}"
 WIDTH="${WIDTH:-1280}"

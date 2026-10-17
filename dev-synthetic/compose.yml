@@ -49,10 +49,9 @@ services:
     # resolved here rather than hardcoded so a Frigate upgrade does not silently break
     # this, which is what hardcoding `8.0` would do.
     #
-    # Frigate publishes architecture-specific tags. `reviews.sh` exports the right one for
-    # this machine, so the same harness runs on an Apple Silicon laptop and on an amd64 CI
-    # runner; override `FRIGATE_IMAGE` to test a different build.
-    image: ${FRIGATE_IMAGE:-ghcr.io/blakeblackshear/frigate:stable-standard-arm64}
+    # `stable` is multi-arch, so the same harness runs on an Apple Silicon laptop and on an
+    # amd64 CI runner. Override `FRIGATE_IMAGE` to test a different build.
+    image: ${FRIGATE_IMAGE:-ghcr.io/blakeblackshear/frigate:stable}
     restart: unless-stopped
     depends_on:
       - mediamtx
@@ -84,7 +83,7 @@ services:
           rtsp://mediamtx:8554/synthetic
 
   frigate:
-    image: ${FRIGATE_IMAGE:-ghcr.io/blakeblackshear/frigate:stable-standard-arm64}
+    image: ${FRIGATE_IMAGE:-ghcr.io/blakeblackshear/frigate:stable}
     restart: unless-stopped
     shm_size: "256mb" # Docker's 64 MB default is the classic Frigate trap
     stop_grace_period: 30s

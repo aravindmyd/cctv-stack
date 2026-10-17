@@ -28,13 +28,14 @@ dev-synthetic
 tests
 docs
 
-# Tool caches
+# Tool caches and build output
 **/__pycache__
 *.py[cod]
 .pytest_cache
 .ruff_cache
 .mypy_cache
 .uv-cache
+dist
 
 # Editor and OS noise
 .DS_Store

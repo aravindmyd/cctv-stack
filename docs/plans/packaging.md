@@ -235,7 +235,7 @@ git tag -s v0.6.0 -m "v0.6.0"
 git push origin v0.6.0
         │
         ▼
-.github/workflows/release.yml
+.github/workflows/publish.yml
   1. assert the tag is on main, the tree is clean, and CI passed for that SHA
   2. buildx build --platform linux/amd64,linux/arm64
        --provenance=mode=max --sbom=true
@@ -265,8 +265,36 @@ The **test** workflows are implemented in
 [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) (pre-commit, unit on 3.12 and
 3.13, the pip fallback, and live integration) and
 [`.github/workflows/e2e.yml`](../../.github/workflows/e2e.yml) (the synthetic pipeline).
-The **release** workflow is not implemented yet — it is the first deliverable after this
-plan is approved.
+
+### 6.1 Implemented publishing
+
+[`.github/workflows/publish.yml`](../../.github/workflows/publish.yml) runs on every push
+to `main` or `master`, on `v*` tags, and on demand:
+
+| Trigger | Publishes |
+|---|---|
+| Every merge to `main`/`master` | `ghcr.io/<owner>/cctv-stack:edge` and `:sha-<short>`, multi-arch; wheel and sdist as a 30-day workflow artefact |
+| Every `v*` tag | The same image under `:<version>` and `:<major>.<minor>`; the wheel and sdist to PyPI; a GitHub Release with both files attached |
+
+Nothing is published unless the `verify` job passes: ruff check, ruff format check, and
+the unit suite. The `dist` job also runs `uv lock --check`, validates the metadata with
+`twine check`, and fails if the sdist contains any local-only path (`.env`, `config/`,
+`data/`, `dev-synthetic/`, `spike/`).
+
+PyPI is deliberately **not** published on every merge. PyPI versions are immutable, so the
+second merge with the same `version` would fail. Per-merge installs use the workflow
+artefact; immutable releases go to PyPI on a tag.
+
+One-time setup, outside this repository:
+
+1. **PyPI trusted publisher** — owner `aravindmyd`, repository `cctv-stack`, workflow
+   `publish.yml`, environment `pypi`. No API token secret is stored.
+2. **GHCR visibility** — after the repository is public, set the `cctv-stack` package to
+   public in its package settings; otherwise anonymous `docker pull` returns unauthorized.
+
+Still to implement for the full M6 release: `versions.yml` digest resolution, the bundle
+allowlist and `compose.yml` without `build:`, cosign signing, and the offline archives.
+Those need the installer phases, which is why the bundle is still marked planned.
 
 ---
 
@@ -342,7 +370,8 @@ are automatable in CI once the installer exists.
 | 2 | Add CI: pre-commit, unit, live integration, synthetic e2e | ✅ now |
 | 3 | Add `scripts/detect-host.sh` and the install phases | M6 |
 | 4 | Add `versions.yml` generation + `compose.override.yml` digest pinning | M6 |
-| 5 | Add the release workflow and bundle allowlist | M6 |
+| 5a | Publish the multi-arch image and Python package | ✅ now |
+| 5b | Add `versions.yml`, the bundle allowlist, cosign and offline archives | M6 |
 | 6 | Add `update.sh`, `uninstall.sh`, `doctor.sh` | M6/M7 |
 | 7 | Add offline archive build + `--offline` install | M6 |
 | 8 | Add bundle installation tests P1–P5 on real hardware | M6/M8 |

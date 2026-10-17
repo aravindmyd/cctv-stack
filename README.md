@@ -61,6 +61,29 @@ A clip appears **after** the visit ends, not during it: Frigate keeps counting a
 until the person has been gone for the alert cutoff. There is no partial clip by design —
 cutting an open review would capture half a visit with no way to extend it later.
 
+## Published artefacts
+
+Every merge to `main` or `master` publishes a multi-architecture image to GHCR:
+
+| Tag | Meaning |
+|---|---|
+| `ghcr.io/aravindmyd/cctv-stack:edge` | The current branch build; moves on every merge |
+| `ghcr.io/aravindmyd/cctv-stack:sha-<short>` | Immutable per commit |
+| `ghcr.io/aravindmyd/cctv-stack:<version>` | Published from a `v*` tag |
+
+The Python package is also published to PyPI on a `v*` tag:
+
+```bash
+pip install cctv-stack
+```
+
+That installs the `cctv-clip-worker`, `cctv-config`, `cctv-uploader` and `cctv-cleanup`
+entry points. It does **not** install Frigate, Docker Compose, or a site configuration, so
+it is a developer package rather than a complete site install. A merge build does not go
+to PyPI (versions are immutable); it is available as a wheel artefact on the workflow run.
+The supported client-site install is the signed release bundle described in
+[`docs/plans/packaging.md`](docs/plans/packaging.md).
+
 ## What is here
 
 | Component | State | Responsibility |
@@ -107,4 +130,5 @@ sweep is the guarantee** — the same review arriving twice produces one clip, n
 
 ## License
 
-Not yet chosen — see [`docs/plans/opensourcing.md`](docs/plans/opensourcing.md).
+Apache-2.0 — see [`LICENSE`](LICENSE) and the reasoning in
+[`docs/plans/opensourcing.md`](docs/plans/opensourcing.md).

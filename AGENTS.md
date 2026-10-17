@@ -158,8 +158,8 @@ specified in the linked design doc.
 Client-site packaging is specified in [`docs/plans/packaging.md`](docs/plans/packaging.md):
 `install.sh` remains the on-host entry point, but a client receives a signed release
 bundle and a digest-pinned image rather than a git checkout. CI lives in
-[`.github/workflows/`](.github/workflows/): pre-commit, unit, live integration, and the
-synthetic e2e pipeline.
+[`.github/workflows/`](.github/workflows/): pre-commit, unit, live integration, the
+synthetic e2e pipeline, and `publish.yml` (GHCR on every merge, PyPI on `v*` tags).
 
 ---
 

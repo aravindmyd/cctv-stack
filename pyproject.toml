@@ -6,8 +6,23 @@ build-backend = "hatchling.build"
 name = "cctv-stack"
 version = "0.3.0"
 description = "A packaging-first self-hosted CCTV stack built on Frigate."
+readme = "README.md"
 requires-python = ">=3.12"
-license = { text = "Apache-2.0" }  # OQ-2 recommends this; confirm before 1.0.0
+license = { file = "LICENSE" }
+authors = [{ name = "Jothika Raja" }]
+keywords = ["cctv", "frigate", "nvr", "video-surveillance", "backblaze-b2", "self-hosted"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Multimedia :: Video",
+    "Topic :: System :: Systems Administration",
+]
+
 # Phase 1 is deliberately near-stdlib-only. Frigate/MQTT clients, the B2 SDK and the
 # HTTP stack arrive with the phases that need them, so the foundation can be tested
 # without a network.
@@ -54,6 +69,11 @@ cctv-config = "cctv.config_cli:main"
 cctv-uploader = "cctv.uploader:main"
 cctv-cleanup = "cctv.cleanup:main"
 
+[project.urls]
+Homepage = "https://github.com/aravindmyd/cctv-stack"
+Repository = "https://github.com/aravindmyd/cctv-stack"
+Issues = "https://github.com/aravindmyd/cctv-stack/issues"
+
 [dependency-groups]
 dev = [
     "pytest>=8.0",
@@ -69,6 +89,32 @@ required-version = ">=0.5.0"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/cctv"]
+
+[tool.hatch.build.targets.sdist]
+# An allowlist, not an exclusion list. Hatchling's default sdist walk includes files in
+# the working directory that git ignores — the first build of this project shipped 22 MB
+# of dev-synthetic fixtures because of it. On a real installation that same default would
+# have picked up `.env`, `config/cameras.yml` and `config/frigate/config.yml`, which hold
+# RTSP and B2 credentials (INV-2). The allowlist makes a future ignored file safe by
+# default rather than safe only if someone remembers to exclude it.
+include = [
+    "/src",
+    "/pyproject.toml",
+    "/README.md",
+    "/LICENSE",
+]
+exclude = [
+    "/.env",
+    "/.env.*",
+    "/config",
+    "/data",
+    "/dev-synthetic",
+    "/docs",
+    "/spike",
+    "/tests",
+    "/.github",
+    "/.venv",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

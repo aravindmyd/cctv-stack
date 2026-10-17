@@ -146,7 +146,7 @@ specified in the linked design doc.
 
 | Command | Purpose | Status | Spec |
 |---|---|---|---|
-| `./install.sh` | Validate prerequisites, generate configs, start the stack, verify health | planned | [`lld/07`](docs/architecture/lld/07-installer-and-host-profiles.md) |
+| `./install.sh` | Create the site config, validate it, start the stack, wait for Frigate | **built** (development version; M6 adds detection, the interview and full verification) | [`lld/07`](docs/architecture/lld/07-installer-and-host-profiles.md) |
 | `./update.sh` | Pull new version, migrate, recreate containers, verify | planned | [`lld/09`](docs/architecture/lld/09-upgrade-and-versioning.md) |
 | `./uninstall.sh` | Stop and remove containers, keep data | planned | [`lld/07`](docs/architecture/lld/07-installer-and-host-profiles.md) |
 | `./backup.sh` | Back up config + database + upload state | planned | [`lld/08`](docs/architecture/lld/08-backup-and-restore.md) |

@@ -43,6 +43,8 @@ dist
 
 # Files not needed by the build
 *.md
+# ...except the README, which hatchling reads because pyproject.toml declares it.
+!README.md
 .gitignore
 .pre-commit-config.yaml
 compose.yml

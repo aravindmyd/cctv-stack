@@ -20,7 +20,12 @@ WORKDIR /app
 
 # Dependencies first, source second. Docker caches per layer, so a source edit then rebuilds
 # only the cheap layer instead of re-resolving the whole dependency graph.
-COPY pyproject.toml uv.lock ./
+#
+# README.md and LICENSE are build inputs, not documentation: pyproject.toml declares both,
+# and hatchling refuses to build the wheel without them. Omitting them produced an image
+# build that passed locally (where the files exist) and failed in CI with
+# `OSError: License file does not exist: LICENSE`.
+COPY pyproject.toml uv.lock README.md LICENSE ./
 RUN uv sync --frozen --no-install-project --no-dev --extra mqtt --extra storage
 
 COPY src ./src

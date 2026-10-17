@@ -30,14 +30,27 @@ docker info >/dev/null 2>&1 || die "the Docker daemon is not reachable. Start Do
 # ---------------------------------------------------------------------------------------
 step "Checking location configuration"
 
+created=0
 if [[ ! -f .env ]]; then
   cp .env.example .env
+  created=1
+fi
+
+if [[ ! -f config/cameras.yml ]]; then
+  cp config/cameras.example.yml config/cameras.yml
+  created=1
+fi
+
+if [[ "$created" -eq 1 ]]; then
   cat <<'EOF'
 
-Created .env from .env.example.
+Created the missing configuration files. The two files you edit are:
 
-Next: open .env and set your camera RTSP URLs. They are the only values there this machine
-cannot work out for itself. Then run ./install.sh again.
+  .env                  camera RTSP URLs, timezone and optional B2 credentials
+  config/cameras.yml    camera names, clip padding and retention
+
+Next: set the real RTSP URLs in .env, then check that config/cameras.yml references the
+same variable names (for example ${CAMERA_FRONT_DOOR_RTSP}). Run ./install.sh again.
 EOF
   exit 0
 fi
@@ -50,15 +63,7 @@ fi
 step "Checking camera configuration"
 
 if [[ ! -f config/cameras.yml ]]; then
-  cp config/cameras.example.yml config/cameras.yml
-  cat <<'EOF'
-
-Created config/cameras.yml from the example.
-
-Next: open it and check that each camera's `rtsp:` entries reference the variable names you
-set in .env (for example `${CAMERA_FRONT_DOOR_RTSP}`). Then run ./install.sh again.
-EOF
-  exit 0
+  die "config/cameras.yml is missing. Copy config/cameras.example.yml and edit it."
 fi
 
 # ---------------------------------------------------------------------------------------

@@ -1,0 +1,40 @@
+# The local gate, mirrored by the `precommit` job in .github/workflows/ci.yml.
+#
+#   uvx pre-commit install     # once, per clone
+#   uvx pre-commit run --all-files
+#
+# Ruff is pinned to the version in uv.lock (0.16.7). A hook that silently upgrades is a
+# hook whose "clean" differs from `uv run ruff check`, which is the check CI actually
+# enforces.
+#
+# `default_language_version` is load-bearing: without it, pre-commit builds a hook
+# environment with whatever `python3` happens to be first on PATH. On this machine that
+# is Python 3.15, for which the pinned ruff has no distribution, and the failure is a
+# confusing "no matching distribution" rather than "use the project's Python".
+default_language_version:
+  python: python3.12
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-yaml
+        # The synthetic harness and the compose files are parsed by Docker, not by us.
+        exclude: ^(spike|dev-synthetic/fixture)/
+      - id: check-json
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: ["--maxkb=1024"]
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+        # Markdown uses two trailing spaces for a hard line break.
+        args: ["--markdown-linebreak-ext=md"]
+      - id: detect-private-key
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.7
+    hooks:
+      - id: ruff
+        args: ["--fix"]
+      - id: ruff-format

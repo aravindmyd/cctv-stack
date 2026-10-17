@@ -1,0 +1,66 @@
+name: E2E
+
+# The synthetic pipeline is the expensive job: it pulls Frigate (~2 GB) and records real
+# footage before the worker can cut anything. Running it on every pull request would make
+# the cheapest change cost ten minutes, so it runs on `main`, on demand, and automatically
+# for anything that touches the pipeline it covers.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "dev-synthetic/**"
+      - "tests/e2e/**"
+      - "Dockerfile"
+      - "compose.yml"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/e2e.yml"
+  pull_request:
+    paths:
+      - "src/**"
+      - "dev-synthetic/**"
+      - "tests/e2e/**"
+      - "Dockerfile"
+      - "compose.yml"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/e2e.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  UV_FROZEN: "1"
+
+jobs:
+  synthetic-pipeline:
+    name: synthetic camera -> canonical clip
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - run: uv sync
+
+      # The runner has Docker; Frigate is the only large pull and it is required by the
+      # test itself, not by the action. The script bounds every wait and prints the
+      # worker and Frigate state on failure, so a hang becomes a diagnosable failure.
+      - name: Synthetic pipeline
+        run: ./tests/e2e/run.sh
+
+      - name: Container logs on failure
+        if: failure()
+        run: |
+          docker compose -f dev-synthetic/compose.yml logs --tail 200 || true
+          docker logs cctv-e2e-worker 2>&1 | tail -200 || true

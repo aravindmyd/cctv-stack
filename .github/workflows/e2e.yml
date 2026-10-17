@@ -6,7 +6,7 @@ name: E2E
 # for anything that touches the pipeline it covers.
 on:
   push:
-    branches: [main]
+    branches: [main, master]
     paths:
       - "src/**"
       - "dev-synthetic/**"

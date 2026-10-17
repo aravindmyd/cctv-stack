@@ -264,7 +264,8 @@ Gates inherited from CI (`.github/workflows/ci.yml`, `.github/workflows/e2e.yml`
 The **test** workflows are implemented in
 [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) (pre-commit, unit on 3.12 and
 3.13, the pip fallback, and live integration) and
-[`.github/workflows/e2e.yml`](../../.github/workflows/e2e.yml) (the synthetic pipeline).
+[`.github/workflows/e2e.yml`](../../.github/workflows/e2e.yml) (the synthetic pipeline,
+on `main` and `master`).
 
 ### 6.1 Implemented publishing
 

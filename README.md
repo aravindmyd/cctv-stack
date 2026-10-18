@@ -63,8 +63,9 @@ A moving `:edge` tag follows `master`. If the registry package is private, run
 | `cctv-clip-worker` | Turn completed Frigate reviews into canonical clips |
 | `cctv-uploader` | Upload clips to B2 through the persisted retry state machine |
 | `cctv-cleanup` | Enforce local retention after a successful upload |
+| `cctv-status` | Serve the aggregate status page (`:8084/status`), health and metrics |
 
-The three services are long-running and configuration-driven; they take no command-line
+The four services are long-running and configuration-driven; they take no command-line
 arguments. Run them under systemd, Docker, or Compose.
 
 ## Quick start

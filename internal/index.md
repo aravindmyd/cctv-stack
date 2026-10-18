@@ -21,7 +21,7 @@ nothing from this directory. A new agent should start with [`../AGENTS.md`](../A
 |---|---|
 | Product requirements | ✅ Complete — [`prd.md`](prd.md) |
 | Architecture and design | 📐 **Written, awaiting owner review** |
-| Implementation | ✅ **M1–M3 built, M4 J1 built** — detect → materialise → durable upload → local retention |
+| Implementation | ✅ **M1–M3 built, M4 J1 built, M5 collector built** — detect → materialise → durable upload → local retention → aggregate status |
 | Release | ✅ **0.3.1** — published to PyPI and GHCR |
 | Client-site packaging | 📐 |
 | Current problems | 📐 — [`now.md`](now.md) |
@@ -31,17 +31,19 @@ The design set is complete: 4 entry points, 1 HLD, 1 invariant list, 6 contracts
 documents.
 
 **What is built** (`src/cctv/`, entry points `cctv-clip-worker`, `cctv-config`,
-`cctv-uploader`, `cctv-cleanup`): a review becomes a file at the canonical path, the
-uploader pushes it to Backblaze B2 exactly once through a storage adapter, and local
-retention deletes a clip only after its upload is terminal-success. Each service exposes
-`/health` and `/metrics` per
+`cctv-uploader`, `cctv-cleanup`, `cctv-status`): a review becomes a file at the canonical path,
+the uploader pushes it to Backblaze B2 exactly once through a storage adapter, local retention
+deletes a clip only after its upload is terminal-success, and the status collector aggregates
+all of it into `/status` (JSON and HTML) on 8084. Each service exposes `/health` and
+`/metrics` per
 [`service-contracts.md`](architecture/contracts/service-contracts.md).
 
 **What is not built:** M4's cloud retention, reconciliation and housekeeping; `force-delete`
 and the cleanup lock, both deliberately deferred by
-[ADR-0021](adr/0021-defer-force-delete-and-advisory-lock.md); the aggregate `/status` page and
-alerting (M5); the installer (M6); and backup/restore/upgrade (M7). Nothing is deleted without
-a successful upload, so [INV-1](architecture/invariants.md) holds.
+[ADR-0021](adr/0021-defer-force-delete-and-advisory-lock.md); M5's monitoring-tool integration
+and alert delivery (the collector itself is built); the installer (M6); and
+backup/restore/upgrade (M7). Nothing is deleted without a successful upload, so
+[INV-1](architecture/invariants.md) holds.
 
 spike/ in the repo root is still a throwaway verification harness for M1, not product code,
 and goes once M1's `VERIFY` items are replaced with measurements.

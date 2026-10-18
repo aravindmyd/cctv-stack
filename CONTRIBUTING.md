@@ -51,15 +51,17 @@ on restart without publishing `end`, so the sweep is what prevents silent clip l
 ## Repository map
 
 ```text
-src/cctv/                 shared library and four services
+src/cctv/                 shared library and five services
   worker.py               cctv-clip-worker
   uploader.py             cctv-uploader
   cleanup.py              cctv-cleanup
+  status.py               status derivation: answer, overall state, projection, HTML
+  status_service.py       cctv-status
   config_cli.py           cctv-config
   materialise.py          review → canonical clip
   db.py                   SQLite state machine and migrations
   storage.py              StorageAdapter + S3/B2 implementation
-  health.py               /health, /metrics, admin endpoints
+  health.py               /health, /metrics, /status, admin endpoints
   migrations/             schema migrations
 tests/                    unit suite
 tests/integration/        live S3 suite against RustFS

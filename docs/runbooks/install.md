@@ -188,6 +188,32 @@ Then fix `config/cameras.yml` and apply:
 ./update.sh --regenerate-config
 ```
 
+### The live view looks like the low-quality sub stream
+
+Frigate's UI can only play a **go2rtc** stream. With none configured it falls back to
+jsmpeg, which is fed from the `detect` role — the sub stream — at the detect fps. The
+generated config registers both camera streams under `go2rtc.streams` and maps them to
+`cameras.<name>.live.streams` (`Main` first, so the default dashboard plays it).
+
+Check what go2rtc was actually given:
+
+```bash
+# The go2rtc config Frigate rendered from config/frigate/config.yml
+docker compose exec frigate cat /dev/shm/go2rtc.yaml
+
+# Streams go2rtc is serving (5000 is auth-exempt inside the network)
+docker compose exec frigate curl -s http://localhost:5000/api/go2rtc/streams | head -c 400
+```
+
+| Reading | Meaning |
+|---|---|
+| No `go2rtc.streams` in the file | The config was not regenerated. `docker compose up -d` |
+| Streams present, UI still soft | The camera is playing the `Sub` entry. Pick `Main` in the Live view's stream selector — it is per device, saved in the browser |
+| Stream fails to start | The camera URL inside `go2rtc.streams` is wrong, or the camera's connection limit is reached |
+
+Turning the UI login on is a separate, one-key change — see
+[`frigate-authentication.md`](frigate-authentication.md).
+
 ### Clips are the wrong length
 
 A clip that starts after the action began, cuts off early, or jumps in the middle. This

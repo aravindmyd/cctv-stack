@@ -11,10 +11,11 @@ Everything else that needs to know about a camera is derived from it.
 
 ## 1. Shape
 
-Three top-level keys, in this order:
+Four top-level keys, in this order:
 
 ```yaml
 site:      # identity of this installation
+frigate:   # process-wide Frigate settings (not per-camera)
 defaults:  # values every camera inherits
 cameras:   # the cameras
 ```
@@ -39,6 +40,11 @@ site:
   location: parents-home                  # required, [a-z0-9-], part of the cloud key prefix
   timezone: Australia/Sydney              # required, IANA name, validated against tzdata
   display_timezone: Australia/Sydney      # optional, defaults to site.timezone; used for clip filenames
+
+frigate:
+  auth:
+    enabled: false                        # true => the UI on 8971 requires a login
+                                          # procedure: runbooks/frigate-authentication.md
 
 defaults:
   detect:
@@ -157,6 +163,20 @@ Storing credentials inline in `cameras.yml` is permitted (the file is `chmod 600
 but `${VAR}` is strongly recommended; the installer writes credentials to `.env`
 and references them.
 
+### 3.3 `frigate`
+
+Settings for Frigate's own process, as opposed to anything about a camera. They
+are deliberately **not** part of `defaults`: `defaults` is camera inheritance, and
+a camera cannot have its own copy of a process-wide setting.
+
+| Field | Type | Default | Validation | Effect |
+|---|---|---|---|---|
+| `auth.enabled` | bool | `false` | — | Projected to Frigate `auth.enabled`. `true` puts the Web UI on `8971` behind a login; see [`runbooks/frigate-authentication.md`](../../runbooks/frigate-authentication.md). Off is safe **only** because port `5000` is never published — that port is exempt from auth by design |
+
+Enabling it does not affect this stack's own services: they talk to Frigate's
+internal port `5000`, which [`frigate-integration.md`](frigate-integration.md#2-authentication)
+records as authenticated-by-network rather than by credential.
+
 ---
 
 ## 4. Mapping to Frigate's config
@@ -167,8 +187,10 @@ output.
 | `cameras.yml` | Generated Frigate key |
 |---|---|
 | `site.timezone` | **Not passed to Frigate, deliberately.** Frigate 0.18 removed its top-level `timezone` key and rejects the entire config — starting in safe mode with no cameras — if one is present. Frigate's own zone comes from the container `TZ` ([ADR-0017](../../adr/0017-time-handling.md) treats the two as independently configured, and a disagreement is a `doctor.sh` check). Our clip paths are rendered from `site.timezone` |
-| `camera.rtsp.main` | `cameras.<name>.ffmpeg.inputs[0].path` (roles: `record`) |
-| `camera.rtsp.sub` | `cameras.<name>.ffmpeg.inputs[1].path` (roles: `detect`) |
+| `camera.rtsp.main` | `go2rtc.streams.<name>` **and** `cameras.<name>.ffmpeg.inputs[0].path` = `rtsp://127.0.0.1:8554/<name>` (roles: `record`, `input_args: preset-rtsp-restream`) |
+| `camera.rtsp.sub` | `go2rtc.streams.<name>_sub` **and** `cameras.<name>.ffmpeg.inputs[1].path` = `rtsp://127.0.0.1:8554/<name>_sub` (roles: `detect`). Absent → the main input takes both roles |
+| *(derived)* | `cameras.<name>.live.streams` = `{Main: <name>, Sub: <name>_sub}`. The **first** entry is what Frigate's default dashboard plays. Without these streams Frigate falls back to jsmpeg on the `detect` role — the sub stream |
+| `frigate.auth.enabled` | `auth.enabled` |
 | `detect.enabled` | `cameras.<name>.detect.enabled` |
 | `detect.objects` → `track` | `cameras.<name>.objects.track` |
 | `detect.fps` | `cameras.<name>.detect.fps` |
@@ -216,8 +238,13 @@ mqtt:
   user: "{FRIGATE_MQTT_USER}"
   password: "{FRIGATE_MQTT_PASSWORD}"
 
+go2rtc:
+  streams:
+    front-door: "rtsp://..."          # camera credentials, literal in the file
+    front-door_sub: "rtsp://..."
+
 auth:
-  enabled: true
+  enabled: true                        # from frigate.auth.enabled
 
 detectors:
   ov:
@@ -244,10 +271,16 @@ cameras:
   front-door:
     ffmpeg:
       inputs:
-        - path: "rtsp://..."     # secret, injected at runtime not written here
+        - path: "rtsp://127.0.0.1:8554/front-door"
+          input_args: preset-rtsp-restream
           roles: [record]
-        - path: "rtsp://..."
+        - path: "rtsp://127.0.0.1:8554/front-door_sub"
+          input_args: preset-rtsp-restream
           roles: [detect]
+    live:
+      streams:
+        Main: front-door
+        Sub: front-door_sub
     detect:
       enabled: true
       width: 1280
@@ -266,9 +299,18 @@ cameras:
       enabled: true
 ```
 
-> **Secrets never appear in the generated file.** Credentials are referenced by
-> environment variable name, and the container resolves them at startup. A
-> generated file on disk is a file the operator might paste into a bug report.
+**Why the `ffmpeg` inputs point at go2rtc, not at the camera.** Frigate's live
+view can only play a go2rtc stream; with none configured it falls back to jsmpeg
+fed from the `detect` role, which is the low-resolution sub stream. Registering
+the main stream is what puts the high-quality feed in the UI. Pointing `record`
+and `detect` at the local restream means the camera still sees **two**
+connections per camera — the budget [`runbooks/install.md`](../../runbooks/install.md)
+documents — instead of four.
+
+> **The generated file contains camera credentials in plaintext.** `${VAR}` is
+> resolved by the generator, because Frigate receives a fully-rendered config.
+> The file is gitignored and must stay that way ([INV-2](../invariants.md)); the
+> header of the generated file says so. Never paste it into an issue.
 
 ---
 

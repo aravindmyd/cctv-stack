@@ -217,6 +217,36 @@ def test_invalid_location_is_refused(tmp_path: Path) -> None:
 
 
 # --------------------------------------------------------------------------------------
+# frigate — process-wide Frigate settings, kept out of camera inheritance
+# --------------------------------------------------------------------------------------
+
+
+def test_the_frigate_ui_login_is_off_by_default(tmp_path: Path) -> None:
+    """Off is the shipped default; `runbooks/frigate-authentication.md` is how it goes on."""
+    assert load(tmp_path).frigate_auth.enabled is False
+
+
+def test_the_frigate_ui_login_can_be_enabled(tmp_path: Path) -> None:
+    cfg = load(tmp_path, "frigate:\n  auth:\n    enabled: true\n" + BASE)
+
+    assert cfg.frigate_auth.enabled is True
+
+
+def test_a_frigate_auth_typo_is_refused(tmp_path: Path) -> None:
+    """Rule 1 applies here too: `enable:` would otherwise leave the UI open while the
+    operator believes it is locked."""
+    with pytest.raises(ConfigError, match="unknown key"):
+        load(tmp_path, "frigate:\n  auth:\n    enable: true\n" + BASE)
+
+
+def test_frigate_auth_needs_a_real_boolean(tmp_path: Path) -> None:
+    """YAML 1.2 is in force, so `yes` is the string `"yes"` and is refused rather than
+    guessed at."""
+    with pytest.raises(ConfigError, match="must be"):
+        load(tmp_path, "frigate:\n  auth:\n    enabled: yes\n" + BASE)
+
+
+# --------------------------------------------------------------------------------------
 # Cross-field rules
 # --------------------------------------------------------------------------------------
 

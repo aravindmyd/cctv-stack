@@ -133,6 +133,13 @@ docker compose exec frigate ffprobe -v error -rtsp_transport tcp \
 
 **When:** the service account is compromised, or during a Frigate major upgrade.
 
+> **Superseded by M1.** The pipeline no longer authenticates: it uses Frigate's internal
+> port `5000`, which is exempt from auth by design
+> ([`frigate-integration.md` §2](../architecture/contracts/frigate-integration.md#2-authentication)).
+> The steps below describe the earlier design and are kept for the upgrade path only.
+> For the *human* UI login — enable, recover, disable — see
+> [`frigate-authentication.md`](frigate-authentication.md).
+
 The pipeline authenticates to Frigate as an admin-role user, because `retain` and
 `unretain` require it.
 

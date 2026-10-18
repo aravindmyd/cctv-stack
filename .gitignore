@@ -51,6 +51,5 @@ config/frigate.generated.yml
 # deliberately ignored and is deleted once its VERIFY items are measurements.
 spike/
 
-# dev-synthetic/ is **committed**. It is the camera-free harness M2 requires and the
-# stack the e2e CI job runs. Its own .gitignore keeps the generated fixture, runtime
-# data and Frigate's state out of git while leaving the harness itself reviewable.
+# Internal planning and notes — not for public consumption.
+.private/

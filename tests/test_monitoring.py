@@ -78,9 +78,7 @@ def test_the_inventory_is_derived_from_configuration(tmp_path: Path) -> None:
 
 
 def test_each_camera_gets_its_own_monitor_without_editing_anything(tmp_path: Path) -> None:
-    cameras = {
-        m.name for m in inventory(tmp_path) if isinstance(m, monitoring.IngestMonitor)
-    }
+    cameras = {m.name for m in inventory(tmp_path) if isinstance(m, monitoring.IngestMonitor)}
 
     assert {"camera-front-door", "camera-garage"} <= cameras
     assert {"storage", "disk", "backup-freshness", "retention"} <= cameras
@@ -162,9 +160,7 @@ def summary_with(**overrides) -> status.StatusSummary:
     base: dict = dict(
         site="parents-home",
         generated_at=1_700_000_000.0,
-        components=(
-            status.ComponentStatus(name="cleanup", state=health.HEALTHY),
-        ),
+        components=(status.ComponentStatus(name="cleanup", state=health.HEALTHY),),
         cameras=(
             status.CameraStatus(name="front-door", state=status.ONLINE),
             status.CameraStatus(name="garage", state=status.OFFLINE),
@@ -269,8 +265,6 @@ def test_a_heartbeat_never_raises_when_the_tool_is_down() -> None:
 
 def test_no_token_means_no_push_attempt() -> None:
     assert (
-        monitoring.push_heartbeat(
-            base_url="http://127.0.0.1:1", key="cctv_disk", token="", ok=True
-        )
+        monitoring.push_heartbeat(base_url="http://127.0.0.1:1", key="cctv_disk", token="", ok=True)
         is False
     )

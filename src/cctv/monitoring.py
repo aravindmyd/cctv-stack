@@ -103,9 +103,7 @@ def heartbeat_key(name: str) -> str:
     config the tool reads; two implementations would eventually disagree, and the symptom
     would be heartbeats that silently 404.
     """
-    safe = "".join(
-        "-" if character in " /_,.#+&" else character for character in name
-    ).lower()
+    safe = "".join("-" if character in " /_,.#+&" else character for character in name).lower()
     return f"{GATUS_GROUP}_{safe}"
 
 
@@ -211,11 +209,7 @@ class GatusAdapter:
                     "url": self.ntfy_url,
                     "topic": self.ntfy_topic,
                     "priority": self.ntfy_priority,
-                    **(
-                        {"click": self.status_page_url}
-                        if self.status_page_url is not None
-                        else {}
-                    ),
+                    **({"click": self.status_page_url} if self.status_page_url is not None else {}),
                     "default-alert": {
                         "failure-threshold": DEFAULT_FAILURE_THRESHOLD,
                         "success-threshold": DEFAULT_SUCCESS_THRESHOLD,

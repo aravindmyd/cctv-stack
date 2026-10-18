@@ -42,6 +42,10 @@ data/
 # is the site's file, not the repository's. `cameras.example.yml` is committed; this is not.
 config/cameras.yml
 
+# The generated monitoring config. It carries the heartbeat token and is derived from
+# cameras.yml at start-up, so editing it by hand is wasted work as well.
+config/gatus/
+
 # Generated Frigate config, plus Frigate's own runtime state, because the directory is
 # mounted as its /config.
 #

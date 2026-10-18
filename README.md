@@ -68,6 +68,10 @@ A moving `:edge` tag follows `master`. If the registry package is private, run
 The four services are long-running and configuration-driven; they take no command-line
 arguments. Run them under systemd, Docker, or Compose.
 
+With Compose, the answer to *is my CCTV working?* is at
+`http://<host>:8084/status`; the dashboard and history are at `http://<host>:3001` (Gatus),
+and alerts arrive through ntfy at `http://<host>:8085`.
+
 ## Quick start
 
 The only required input is a `cameras.yml`. This minimal file is valid; `${VAR}` values

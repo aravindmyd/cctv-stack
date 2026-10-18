@@ -152,13 +152,50 @@ services:
       CCTV_DATA_DIR: /data
       CCTV_DB: /data/cctv.db
       CCTV_STATUS_HEALTH_PORT: "8084"
+      # The monitoring tool's config is generated here, from cameras.yml (INV-3).
+      CCTV_STATUS_GATUS_CONFIG: /config/gatus/config.yaml
+      CCTV_STATUS_GATUS_URL: http://gatus:8080
+      CCTV_STATUS_NTFY_URL: http://ntfy:80
     ports:
       - "${STATUS_PORT:-8084}:8084"
     volumes:
       - ./config:/config:ro
+      # Narrowly writable: only the generated monitoring config lives here.
+      - ./config/gatus:/config/gatus
       - ${CCTV_DATA_DIR:-./data}:/data
       - ${CCTV_DATA_DIR:-./data}/clips:/data/clips:ro
       - ${CCTV_DATA_DIR:-./data}/media:/data/media:ro
+
+  # Dashboard, history and alert delivery (lld/06 §6). We deliberately do not build either:
+  # Gatus owns both, configured from the file `status` generates, and `ntfy` is the channel.
+  # Gatus is in the default stack rather than a profile: a product whose promise is "health as
+  # a first-class feature" should not ship with alerting switched off by default.
+  gatus:
+    image: ghcr.io/twin/gatus:stable
+    restart: unless-stopped
+    depends_on: [status]
+    environment:
+      GATUS_CONFIG_PATH: /config/config.yaml
+    ports:
+      - "${GATUS_PORT:-3001}:8080"
+    volumes:
+      - ./config/gatus:/config:ro
+      - ${CCTV_DATA_DIR:-./data}/gatus:/data
+
+  # Push notifications. Published to the LAN so a phone can subscribe, and it holds no camera
+  # data — only the alert text Gatus sends it.
+  ntfy:
+    image: binwiederhier/ntfy
+    command: ["serve"]
+    restart: unless-stopped
+    environment:
+      NTFY_BASE_URL: http://ntfy
+      NTFY_CACHE_FILE: /var/cache/ntfy/cache.db
+      NTFY_AUTH_FILE: /var/cache/ntfy/auth.db
+    ports:
+      - "${NTFY_PORT:-8085}:80"
+    volumes:
+      - ${CCTV_DATA_DIR:-./data}/ntfy:/var/cache/ntfy
 
   cleanup:
     <<: *cctv-image

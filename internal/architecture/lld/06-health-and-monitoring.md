@@ -3,14 +3,16 @@
 **Implements:** [INV-6](../invariants.md)
 **Specified by:** [`contracts/service-contracts.md`](../contracts/service-contracts.md)
 
-> **Implementation status (2026-10-18).** Slice 1 is built: `src/cctv/status.py` (derivation,
-> the answer string, camera states, storage projection, camera/disk thresholds) and
-> `src/cctv/status_service.py` (`cctv-status`, schema `0003` for disk samples). §3, §4, §5 and
-> §7 are implemented; §2 is implemented as *polling* rather than MQTT subscription — camera
-> state is read from Frigate's `/api/stats`, the same signal its MQTT status is derived from,
-> so there is one source of truth and no second subscription to disagree with it. **Not built:**
-> §6 (the `MonitoringAdapter`, generated Gatus config, push heartbeats, notifications) and
-> therefore **M5.7–M5.10, M5.13**.
+> **Implementation status (2026-10-18).** Built: `src/cctv/status.py` (derivation, the answer
+> string, camera states, storage projection) and `src/cctv/status_service.py` (`cctv-status`,
+> schema `0003` for disk samples); then `src/cctv/monitoring.py` — the `MonitoringAdapter`, the
+> `GatusAdapter`, the monitor inventory and push heartbeats. §3, §4, §5, §6.3–§6.5 and §7 are
+> implemented; §2 is implemented as *polling* rather than MQTT subscription — camera state is
+> read from Frigate's `/api/stats`, the same signal its MQTT status is derived from, so there is
+> one source of truth and no second subscription to disagree with it. Gatus and ntfy run in the
+> default stack: Gatus's config is generated from `cameras.yml`, and `cctv-status` pushes one
+> heartbeat per camera plus disk, backup, retention and storage. **Not built:** `KumaAdapter`
+> (the fallback implementation), and a live end-to-end alert run (M5.13 is a manual check).
 
 Answering the PRD's question — *"is my CCTV system actually working?"* — and
 delivering the answer to a human, without building a UI.
@@ -243,8 +245,9 @@ escalation in the monitoring tool handles.
 
 ### 6.2 Tool choice
 
-> **Open question, with a recommendation.** See
-> plans/open-questions.md (tracked in `.private/plans/`, not in docs).
+> **Resolved (2026-10-18): Gatus.** It is implemented in `src/cctv/monitoring.py` and runs in
+> the default compose stack. `Uptime Kuma` remains the documented fallback; the adapter exists
+> so switching stays a contained change, but no `KumaAdapter` is written yet.
 
 | | Gatus | Uptime Kuma |
 |---|---|---|

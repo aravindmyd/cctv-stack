@@ -37,7 +37,7 @@ The file is commented; the values you must set are:
 ```ini
 # The published image. Pin the release you are installing; `edge` follows the default
 # branch and is not a stable target.
-CCTV_IMAGE=ghcr.io/aravindmyd/cctv-stack:0.3.1
+CCTV_IMAGE=ghcr.io/aravindmyd/cctv-stack:0.5.0
 
 # RTSP URLs. Replace the placeholder user:password and host.
 CAMERA_FRONT_DOOR_RTSP=rtsp://user:password@192.168.1.10:554/Streaming/Channels/101
@@ -51,10 +51,9 @@ Leave `CCTV_STORAGE_BUCKET` empty for a local-only install. The uploader will ru
 report `DISABLED`; nothing is uploaded and nothing is hidden.
 
 !!! note "Image tags"
-    `0.3.1` is the current release and matches the configuration shown here. `:0.3` follows
-    the newest 0.3.x patch, and `:edge` is rebuilt on every merge to `master` — useful for
+    `0.5.0` is the current release and matches the configuration shown here. `:0.5` follows
+    the newest 0.5.x patch, and `:edge` is rebuilt on every merge to `master` — useful for
     testing a change, not for a site you rely on.
-
 ### 2. Edit `config/cameras.yml`
 
 Set the site name and timezone, and make sure each camera references the variable names
@@ -202,10 +201,19 @@ docker compose pull
 docker compose up -d
 ```
 
+!!! warning "Upgrading from 0.3.x"
+    `0.5.0` adds three services — `status` (the aggregate page), `gatus` and `ntfy` — so the
+expected `compose.yml` and `.env` changed as well as the image. Re-download both, then merge
+any values you had edited in `.env` into the new file (it gains `STATUS_PORT`, `GATUS_PORT`,
+`NTFY_PORT` and `CCTV_MONITORING_TOKEN`). `config/cameras.yml` is unchanged.
+
+    `0.5.0` also writes a second generated file, `config/host.yml`, the first time the
+    installer runs. Existing sites keep working without it.
+
 pip:
 
 ```bash
-python -m pip install --upgrade cctv-stack
+python -m pip install --upgrade "cctv-stack==0.5.0"
 ```
 
 Database migrations run automatically when a service starts. They are forward-only:

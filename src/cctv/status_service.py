@@ -25,6 +25,7 @@ from typing import Any
 from . import db, health, status, timeutil
 from .config import CamerasConfig, ConfigError, load_cameras_config
 from .logging import configure_logging
+from .monitoring import GatusAdapter, heartbeats_for, monitors_for, push_heartbeat
 from .timeutil import Instant
 
 __all__ = ["EXIT_CONFIG", "EXIT_OK", "EXIT_UNAVAILABLE", "StatusService", "main"]
@@ -72,7 +73,48 @@ class StatusService:
         with self._lock:
             self._latest = summary
             self._last_error = None
+        self._push_heartbeats(summary)
         return summary
+
+    def write_monitoring_config(self) -> bool:
+        """Render the monitoring tool's config from `cameras.yml`.
+
+        Written here rather than by the installer because the installer does not exist yet
+        (M6). When it does, this becomes the installer's call and the path is unchanged: the
+        file is still generated from one source of truth (INV-3), never hand-edited.
+        """
+        path = self._settings.gatus_config_path
+        if path is None:
+            return False
+        adapter = GatusAdapter(
+            ntfy_url=self._settings.ntfy_url,
+            ntfy_topic=self._settings.ntfy_topic,
+            token=self._settings.monitoring_token,
+            status_page_url=self._settings.monitoring_url,
+        )
+        monitors = monitors_for(
+            self._config,
+            frigate_url=self._settings.frigate_url,
+            component_urls=dict(self._settings.component_urls),
+            mosquitto_host=self._settings.mosquitto_host,
+            mosquitto_port=self._settings.mosquitto_port,
+            collect_interval_s=self._settings.collect_interval_s,
+        )
+        adapter.write_config(path, monitors)
+        logger.info(
+            "monitoring config written",
+            extra={"path": str(path), "count": len(monitors)},
+        )
+        return True
+
+    def _push_heartbeats(self, summary: status.StatusSummary) -> None:
+        """Tell the monitoring tool what we saw. Failure is logged, never raised."""
+        base = self._settings.gatus_url
+        token = self._settings.monitoring_token
+        if not base or not token:
+            return
+        for key, (ok, detail) in heartbeats_for(summary).items():
+            push_heartbeat(base_url=base, key=key, token=token, ok=ok, detail=detail)
 
     def latest(self) -> status.StatusSummary | None:
         with self._lock:
@@ -274,6 +316,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     logger.info("state store ready", extra={"state": f"schema-{version}"})
 
     service = StatusService(settings=settings, config=config)
+
+    if settings.gatus_config_path is not None:
+        try:
+            service.write_monitoring_config()
+        except OSError as exc:
+            # The monitoring tool is a convenience; the status page is the product. A
+            # read-only mount is a deployment mistake worth logging, not a reason to exit.
+            logger.error(
+                "could not write the monitoring config",
+                extra={"path": str(settings.gatus_config_path), "reason": str(exc)},
+            )
 
     stop = threading.Event()
     _install_signal_handlers(stop)

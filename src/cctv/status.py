@@ -130,6 +130,13 @@ class StatusSettings:
     cleanup_interval_s: float = 3600.0
     frigate_ui_url: str = DEFAULT_FRIGATE_UI_URL
     monitoring_url: str | None = None
+    #: Where the generated monitoring config is written, and where heartbeats go. Both are
+    #: optional: a local-only deployment with no monitoring tool must still work.
+    gatus_config_path: Path | None = None
+    gatus_url: str | None = None
+    monitoring_token: str = ""
+    ntfy_url: str = "http://ntfy:80"
+    ntfy_topic: str = "cctv"
 
     @classmethod
     def from_environ(cls, environ: Mapping[str, str] | None = None) -> StatusSettings:
@@ -185,6 +192,15 @@ class StatusSettings:
             cleanup_interval_s=number("CCTV_CLEANUP_RUN_INTERVAL_S", 3600.0),
             frigate_ui_url=env.get("CCTV_STATUS_FRIGATE_UI_URL", DEFAULT_FRIGATE_UI_URL),
             monitoring_url=(env.get("CCTV_STATUS_MONITORING_URL") or "").strip() or None,
+            gatus_config_path=(
+                Path(value)
+                if (value := (env.get("CCTV_STATUS_GATUS_CONFIG") or "").strip())
+                else None
+            ),
+            gatus_url=(env.get("CCTV_STATUS_GATUS_URL") or "").strip() or None,
+            monitoring_token=(env.get("CCTV_MONITORING_TOKEN") or "").strip(),
+            ntfy_url=env.get("CCTV_STATUS_NTFY_URL", "http://ntfy:80"),
+            ntfy_topic=env.get("CCTV_STATUS_NTFY_TOPIC", "cctv"),
         )
         if settings.collect_interval_s <= 0:
             raise ValueError("CCTV_STATUS_COLLECT_INTERVAL_S must be positive.")

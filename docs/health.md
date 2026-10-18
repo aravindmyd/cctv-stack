@@ -42,6 +42,31 @@ cannot be verified.
 A camera that is reachable but has stopped producing clips is called out as `QUIET` rather
 than looking fine — that is the failure mode a simple camera-online check misses.
 
+## Dashboard and notifications
+
+Gatus runs alongside the stack on `http://<host>:3001` and owns two things this project
+deliberately does not build: history, and alert delivery. Its configuration is generated from
+`cameras.yml`, so a camera added to the config appears there without editing a second file.
+
+Alerts go to **ntfy** on `http://<host>:8085`. Install the ntfy app, subscribe to the `cctv`
+topic, and that is the whole setup. Every alert has a matching recovery notification, and the
+generated policy fires only after three consecutive failures so a reconnect blip does not
+wake anyone.
+
+What is watched, beyond the four services:
+
+| Monitor | Kind | Why |
+|---|---|---|
+| `camera-<name>` | heartbeat | One per camera, generated. A missing heartbeat alerts |
+| `disk` | heartbeat | Free space and the projected days-to-full |
+| `backup-freshness` | heartbeat | No successful upload for 30 minutes with a non-empty queue |
+| `retention` | heartbeat | Cleanup has stopped completing passes |
+| `mosquitto` | TCP | The broker is listening |
+| `frigate`, the four services | HTTP (`?strict=1`) | A `DEGRADED` state alerts |
+
+If the status collector itself dies, its heartbeats stop and Gatus alerts on the silence —
+the tool does not depend on the thing it monitors to notice it is gone.
+
 ## Reading a report
 
 ```json

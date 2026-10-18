@@ -66,10 +66,14 @@ logger = logging.getLogger(__name__)
 #: The collector's own component name, in logs, health and `system_events`.
 COMPONENT = "status-collector"
 
-#: Everything the collector expects to hear from, in the order the page lists them. Frigate and
-#: storage are not here: neither speaks our `/health` contract, and both are observed
-#: differently.
-COMPONENT_NAMES: tuple[str, ...] = ("clip-worker", "uploader", "cleanup")
+#: Everything the collector expects to hear from over HTTP, in the order the page lists it.
+#: Frigate and storage are not here: neither speaks our `/health` contract, and both are
+#: observed differently. **`clip-worker` is not here either** — it has no health endpoint by
+#: design (`docs/health.md`): it keeps no state beyond the database, so there is nothing for
+#: it to report. Probing a URL that does not exist made a healthy stack look `UNKNOWN`
+#: forever, which is the opposite of what a status page is for. Its contribution is derived
+#: from the clip history below.
+COMPONENT_NAMES: tuple[str, ...] = ("uploader", "cleanup")
 
 #: Camera states. Separate from the component states on purpose: a camera is `ONLINE`,
 #: `OFFLINE` or `QUIET`, and calling it `HEALTHY` would invite somebody to alert on the wrong
@@ -485,6 +489,11 @@ def answer(summary: StatusSummary) -> str:
             else f"Recording is working. Cloud backup stalled {_human_age(stale)} ago."
         )
 
+    if summary.cameras_quiet:
+        names = ", ".join(c.name for c in summary.cameras_quiet)
+        verb = "has" if len(summary.cameras_quiet) == 1 else "have"
+        return f"Recording is working, but {names} {verb} produced no clips recently."
+
     worker = summary.component("clip-worker")
     if worker is not None and worker.state in {health.UNHEALTHY, health.UNKNOWN}:
         return "Cameras are recording, but clips are not being created."
@@ -660,6 +669,33 @@ def camera_status(
 
     return CameraStatus(
         name=name, state=ONLINE, last_clip_at=last_clip_at, detection_fps=detection_fps
+    )
+
+
+def _clip_worker_component(cameras: tuple[CameraStatus, ...]) -> ComponentStatus:
+    """Clip production, judged from the database rather than from an endpoint it lacks.
+
+    A fresh install with no clips is healthy: there is nothing to judge, and the documented
+    silent-camera rule exempts cameras without history. Once a camera *has* produced clips,
+    "every camera with history has gone QUIET" is what a broken clip-worker looks like from
+    outside — and it is also what a stopped camera looks like, which the camera's own state
+    already reports.
+    """
+    with_history = [camera for camera in cameras if camera.last_clip_at is not None]
+    if not with_history:
+        return ComponentStatus(name="clip-worker", state=health.HEALTHY, summary="no clips yet")
+    if all(camera.state == QUIET for camera in with_history):
+        return ComponentStatus(
+            name="clip-worker",
+            state=health.DEGRADED,
+            code="CAMERA_QUIET",
+            summary="no clips are being produced",
+        )
+    producing = sum(1 for camera in with_history if camera.state == ONLINE)
+    return ComponentStatus(
+        name="clip-worker",
+        state=health.HEALTHY,
+        summary=f"{producing} camera(s) producing clips",
     )
 
 
@@ -927,6 +963,7 @@ class Collector:
             for name in sorted(self.config.enabled_cameras())
         )
         self._track_offline(cameras, now=now, stats=frigate)
+        components.append(_clip_worker_component(cameras))
 
         return StatusSummary(
             site=self.config.site.location,

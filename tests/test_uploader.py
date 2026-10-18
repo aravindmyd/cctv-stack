@@ -758,6 +758,25 @@ def test_an_unverified_upload_degrades_health(env: Any) -> None:
     assert any(check.code == "UPLOAD_UNVERIFIED" for check in report.checks)
 
 
+def test_a_size_verified_multipart_upload_is_healthy_not_degraded(env: Any) -> None:
+    """#2: multipart uploads are verified by size plus our own sha256, by design.
+
+    `cloud-object-layout` §4.2 documents `verified_by="size"` as the expected outcome above
+    the multipart threshold. Degrading on it made every healthy B2 site permanently DEGRADED
+    and, through `?strict=1`, permanently 503.
+    """
+    env.adapter.verified_by = "size"
+    add_clip(env)
+    claim(env)
+
+    report = reporter(env).report()
+    verification = next(c for c in report.checks if c.name == "upload_verification")
+
+    assert report.state == health.HEALTHY
+    assert verification.state == health.HEALTHY
+    assert "size" in (verification.detail or "")
+
+
 def test_bad_credentials_are_named_in_health(env: Any) -> None:
     env.adapter._health = storage.AdapterHealth(
         reachable=True,

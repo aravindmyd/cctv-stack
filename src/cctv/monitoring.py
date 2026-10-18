@@ -137,7 +137,7 @@ def monitors_for(
             interval_s=collect_interval_s,
         )
     ]
-    for name in ("clip-worker", "uploader", "cleanup"):
+    for name in ("uploader", "cleanup"):
         url = component_urls.get(name)
         if url:
             probes.append(
@@ -203,7 +203,7 @@ class GatusAdapter:
         ingests = [monitor for monitor in monitors if isinstance(monitor, IngestMonitor)]
 
         config: dict[str, Any] = {
-            "storage": {"type": "sqlite", "path": "/data/gatus.db"},
+            "storage": {"type": "sqlite", "path": "/gatus-data/gatus.db"},
             "alerting": {
                 "ntfy": {
                     "url": self.ntfy_url,
@@ -281,7 +281,10 @@ def heartbeats_for(summary: StatusSummary) -> dict[str, tuple[bool, str]]:
     )
 
     cleanup = summary.component("cleanup")
-    retention_ok = cleanup is not None and cleanup.state in {health.HEALTHY, health.DISABLED}
+    retention_ok = cleanup is not None and cleanup.state in {
+        health.HEALTHY,
+        health.DISABLED,
+    }
     out[heartbeat_key("retention")] = (
         retention_ok,
         "unobserved" if cleanup is None else cleanup.state,

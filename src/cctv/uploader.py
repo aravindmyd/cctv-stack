@@ -392,6 +392,7 @@ class Uploader:
         self._rng = rng
         self._lock = threading.Lock()
         self._unverified = 0
+        self._size_verified = 0
         self._uploaded = 0
         self._failed_permanent = 0
 
@@ -399,8 +400,14 @@ class Uploader:
 
     @property
     def unverified_uploads(self) -> int:
+        """Uploads with no provider confirmation at all — the only case that degrades."""
         with self._lock:
             return self._unverified
+
+    @property
+    def size_verified_uploads(self) -> int:
+        with self._lock:
+            return self._size_verified
 
     @property
     def uploaded_uploads(self) -> int:
@@ -517,8 +524,14 @@ class Uploader:
 
         with self._lock:
             self._uploaded += 1
-            if result.verified_by != "sha256":
+            # `size` is not a failure. Multipart uploads return a composite digest, so the
+            # adapter compares size plus our own sha256 metadata instead — documented in
+            # `cloud-object-layout` §4.2 and expected above 100 MB. Only `none`, where no
+            # confirmation exists at all, is the condition worth degrading over.
+            if result.verified_by == "none":
                 self._unverified += 1
+            elif result.verified_by == "size":
+                self._size_verified += 1
 
         logger.info(
             "uploaded clip",
@@ -910,10 +923,21 @@ class UploaderHealth:
                     code="UPLOAD_UNVERIFIED",
                     detail=(
                         f"{self._uploader.unverified_uploads} upload(s) since start could not "
-                        f"be verified against a provider checksum. An unverified backup is not "
-                        f"a backup"
+                        f"be verified at all. An unverified backup is not a backup"
                     ),
                 )
+            )
+        else:
+            # Reported rather than hidden: size verification is the documented outcome for
+            # multipart uploads, but the operator should still be able to see it happened.
+            size_verified = self._uploader.size_verified_uploads
+            detail = (
+                "all verified by provider checksum"
+                if size_verified == 0
+                else f"{size_verified} multipart upload(s) verified by size and local sha256"
+            )
+            checks.append(
+                health.Check(name="upload_verification", state=health.HEALTHY, detail=detail)
             )
         return checks
 

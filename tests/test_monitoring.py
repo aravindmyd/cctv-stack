@@ -68,16 +68,20 @@ def test_the_inventory_is_derived_from_configuration(tmp_path: Path) -> None:
     monitors = inventory(tmp_path)
     probes = {m.name: m for m in monitors if isinstance(m, monitoring.Probe)}
 
-    assert set(probes) == {"frigate", "clip-worker", "uploader", "cleanup", "mosquitto"}
+    # clip-worker has no health endpoint by design, so it is not probed. Asking a URL that
+    # does not exist is what made a healthy stack look UNKNOWN forever.
+    assert set(probes) == {"frigate", "uploader", "cleanup", "mosquitto"}
     # Frigate answers /api/version with an empty body, so the probe must use /api/stats.
     assert probes["frigate"].target == "http://frigate:5000/api/stats"
     # DEGRADED should alert, so the service probes are strict.
-    assert probes["clip-worker"].target.endswith("/health?strict=1")
+    assert probes["uploader"].target.endswith("/health?strict=1")
     assert probes["mosquitto"].target == "tcp://mosquitto:1883"
     assert probes["mosquitto"].condition == "[CONNECTED] == true"
 
 
-def test_each_camera_gets_its_own_monitor_without_editing_anything(tmp_path: Path) -> None:
+def test_each_camera_gets_its_own_monitor_without_editing_anything(
+    tmp_path: Path,
+) -> None:
     cameras = {m.name for m in inventory(tmp_path) if isinstance(m, monitoring.IngestMonitor)}
 
     assert {"camera-front-door", "camera-garage"} <= cameras
@@ -109,7 +113,7 @@ def test_external_endpoints_are_omitted_without_a_token(tmp_path: Path) -> None:
     rendered = yaml.safe_load(adapter.render_config(inventory(tmp_path)))
 
     assert "external-endpoints" not in rendered
-    assert len(rendered["endpoints"]) == 5
+    assert len(rendered["endpoints"]) == 4
 
 
 def test_external_endpoints_carry_the_token_and_a_heartbeat(tmp_path: Path) -> None:
@@ -124,7 +128,9 @@ def test_external_endpoints_carry_the_token_and_a_heartbeat(tmp_path: Path) -> N
     assert external["camera-garage"]["heartbeat"]["interval"] == "90s"
 
 
-def test_the_alert_policy_is_recovery_aware_and_not_trigger_happy(tmp_path: Path) -> None:
+def test_the_alert_policy_is_recovery_aware_and_not_trigger_happy(
+    tmp_path: Path,
+) -> None:
     adapter = monitoring.GatusAdapter(token="secret", ntfy_url="http://ntfy:80")
 
     rendered = yaml.safe_load(adapter.render_config(inventory(tmp_path)))
@@ -145,6 +151,31 @@ def test_the_config_file_is_owner_only(tmp_path: Path) -> None:
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
 
 
+def test_gatus_keeps_its_state_in_the_named_volume() -> None:
+    """A host directory for Gatus's state is the ownership trap that crashed fresh installs."""
+    adapter = monitoring.GatusAdapter(token="secret")
+    rendered = yaml.safe_load(adapter.render_config([]))
+
+    assert rendered["storage"]["path"] == "/gatus-data/gatus.db"
+
+
+def test_compose_puts_the_generated_config_where_the_collector_can_write() -> None:
+    """#3: a bind mount of a not-yet-existing directory is created root-owned, and the image
+    runs as uid 10001 — which left Gatus in a crash loop on a fresh install."""
+    path = Path(__file__).resolve().parents[1] / "compose.yml"
+    document = yaml.safe_load(path.read_text(encoding="utf-8"))
+    services = document["services"]
+
+    config_path = services["status"]["environment"]["CCTV_STATUS_GATUS_CONFIG"]
+    assert config_path == "/data/gatus/config.yaml"
+    assert services["gatus"]["environment"]["GATUS_CONFIG_PATH"] == config_path
+    assert any(entry.endswith(":/data:ro") for entry in services["gatus"]["volumes"])
+    assert "gatus-data:/gatus-data" in services["gatus"]["volumes"]
+    assert "gatus-data" in document["volumes"]
+    # No service may bind-mount a subdirectory of config/ that it must create itself.
+    assert not any("config/gatus" in str(entry) for entry in services["status"]["volumes"])
+
+
 # ---------------------------------------------------------------------------------------
 # Heartbeats
 # ---------------------------------------------------------------------------------------
@@ -154,7 +185,10 @@ def summary_with(**overrides) -> status.StatusSummary:
     backlog = overrides.pop(
         "backlog",
         db.QueueSummary(
-            counts={}, oldest_pending_age_s=None, uploaded_24h=0, last_successful_upload_at=None
+            counts={},
+            oldest_pending_age_s=None,
+            uploaded_24h=0,
+            last_successful_upload_at=None,
         ),
     )
     base: dict = dict(

@@ -152,16 +152,17 @@ services:
       CCTV_DATA_DIR: /data
       CCTV_DB: /data/cctv.db
       CCTV_STATUS_HEALTH_PORT: "8084"
-      # The monitoring tool's config is generated here, from cameras.yml (INV-3).
-      CCTV_STATUS_GATUS_CONFIG: /config/gatus/config.yaml
+      # The monitoring tool's config is generated here, from cameras.yml (INV-3). It lives
+      # under /data because that is the one tree the services are guaranteed to be able to
+      # write: a bind mount of a not-yet-existing subdirectory is created root-owned, and the
+      # image runs as uid 10001.
+      CCTV_STATUS_GATUS_CONFIG: /data/gatus/config.yaml
       CCTV_STATUS_GATUS_URL: http://gatus:8080
       CCTV_STATUS_NTFY_URL: http://ntfy:80
     ports:
       - "${STATUS_PORT:-8084}:8084"
     volumes:
       - ./config:/config:ro
-      # Narrowly writable: only the generated monitoring config lives here.
-      - ./config/gatus:/config/gatus
       - ${CCTV_DATA_DIR:-./data}:/data
       - ${CCTV_DATA_DIR:-./data}/clips:/data/clips:ro
       - ${CCTV_DATA_DIR:-./data}/media:/data/media:ro
@@ -175,12 +176,15 @@ services:
     restart: unless-stopped
     depends_on: [status]
     environment:
-      GATUS_CONFIG_PATH: /config/config.yaml
+      GATUS_CONFIG_PATH: /data/gatus/config.yaml
     ports:
       - "${GATUS_PORT:-3001}:8080"
     volumes:
-      - ./config/gatus:/config:ro
-      - ${CCTV_DATA_DIR:-./data}/gatus:/data
+      # Read the generated config from the data tree, which the status service can write.
+      # Gatus's own state goes in a named volume so it never needs to create a host
+      # directory (that is what left a fresh install in a crash loop).
+      - ${CCTV_DATA_DIR:-./data}:/data:ro
+      - gatus-data:/gatus-data
 
   # Push notifications. Published to the LAN so a phone can subscribe, and it holds no camera
   # data — only the alert text Gatus sends it.
@@ -215,3 +219,9 @@ services:
     volumes:
       - ./config:/config:ro
       - ${CCTV_DATA_DIR:-./data}:/data
+
+volumes:
+  # Gatus's own history. A named volume rather than a host directory because Docker creates a
+  # missing bind-mount source as root, which is the ownership trap a fresh install fell into.
+  gatus-data:
+    {}

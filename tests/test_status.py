@@ -229,6 +229,17 @@ def test_the_answer_names_retention_when_cleanup_is_unobserved() -> None:
     assert "Retention has not run recently" in s.answer
 
 
+def test_the_answer_names_a_quiet_camera() -> None:
+    s = summary(
+        disk=HEALTHY_DISK,
+        cameras=(status.CameraStatus(name="garage", state=status.QUIET),),
+    )
+
+    assert "garage" in s.answer
+    assert "no clips recently" in s.answer
+    assert s.overall == health.DEGRADED
+
+
 def test_the_answer_admits_when_frigate_cannot_be_observed() -> None:
     """Partial observation is stated, not glossed: no Frigate means no camera evidence."""
     s = summary(
@@ -483,6 +494,58 @@ def test_collection_reports_partial_observation(
     assert "cannot be verified" in result.answer
 
 
+def test_a_component_with_no_health_endpoint_is_not_probed(
+    tmp_path: Path, settings: status.StatusSettings, migrated: Path
+) -> None:
+    """#1: clip-worker has no /health, so probing it reported UNKNOWN forever."""
+    probed: list[str] = []
+
+    def probe(name: str, _url: str) -> Mapping[str, Any]:
+        probed.append(name)
+        return healthy_payload(name)
+
+    collector = status.Collector(
+        settings=settings,
+        config=make_config(tmp_path),
+        clock=Clock(),
+        probe_health=probe,
+        probe_stats=lambda _url: {"cameras": {}},
+        probe_disk=lambda _path: HEALTHY_DISK,
+        probe_mqtt=lambda _host, _port: True,
+    )
+
+    result = collector.collect()
+
+    assert "clip-worker" not in probed
+    assert result.component("clip-worker") is not None
+    assert result.component("clip-worker").state == health.HEALTHY
+    assert result.component("clip-worker").summary == "no clips yet"
+
+
+def test_clip_worker_goes_degraded_when_every_camera_with_history_is_quiet(
+    settings: status.StatusSettings,
+) -> None:
+    now = 1_700_000_000.0
+    times = [now - 10 * 86400 + i * 1800.0 for i in range(20)]
+    # Both cameras produced events once, then stopped three days ago.
+    camera = status.camera_status(
+        name="front-door",
+        stats={},
+        last_clip_at=times[-1] - 3 * 86400.0,
+        clip_times=[t - 3 * 86400.0 for t in times],
+        offline_since=None,
+        now=now,
+        settings=settings,
+    )
+    assert camera.state == status.QUIET
+
+    derived = status._clip_worker_component((camera,))
+
+    assert derived.state == health.DEGRADED
+    assert derived.code == "CAMERA_QUIET"
+    assert derived.summary == "no clips are being produced"
+
+
 def test_a_component_that_stops_reporting_becomes_unknown_not_healthy(
     tmp_path: Path, settings: status.StatusSettings, migrated: Path
 ) -> None:
@@ -527,15 +590,14 @@ def test_a_version_mismatch_degrades_the_component(
         settings,
         clock=clock,
         health_by_name={
-            "clip-worker": healthy_payload("clip-worker", version="0.2.9"),
-            "uploader": healthy_payload("uploader"),
+            "uploader": healthy_payload("uploader", version="0.2.9"),
             "cleanup": healthy_payload("cleanup"),
         },
     )
 
     result = collector.collect()
 
-    worker = result.component("clip-worker")
+    worker = result.component("uploader")
     assert worker.state == health.DEGRADED
     assert "0.2.9" in worker.summary
 

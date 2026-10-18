@@ -40,7 +40,13 @@ import yaml
 
 from .config import CamerasConfig, ConfigError, load_cameras_config, to_frigate
 
-__all__ = ["build_frigate_config", "main", "render"]
+__all__ = ["EXIT_CONFIG", "EXIT_OK", "build_frigate_config", "main", "render"]
+
+#: `EX_OK` / `EX_CONFIG` from `sysexits.h`, per LLD 00 §3 — the same pair the three long-running
+#: services use. An invalid configuration is not an internal error: the caller should not
+#: retry, and a script must be able to tell the two apart without parsing stderr.
+EXIT_OK = 0
+EXIT_CONFIG = 78
 
 #: Written into the file itself, not just into this module. Two invariants are at stake and
 #: neither survives as a comment in a code file that a site operator will never read:
@@ -205,7 +211,7 @@ def _load(path: Path) -> CamerasConfig | None:
 def _cmd_validate(args: argparse.Namespace) -> int:
     config = _load(args.cameras)
     if config is None:
-        return 1
+        return EXIT_CONFIG
 
     # Projecting is the point: `to_frigate` enforces the retention-headroom rule (INV-9),
     # so validating without generating would let an unworkable site pass.
@@ -213,28 +219,28 @@ def _cmd_validate(args: argparse.Namespace) -> int:
         build_frigate_config(config)
     except ConfigError as exc:
         print(f"error: {exc}", file=sys.stderr)
-        return 1
+        return EXIT_CONFIG
 
     names = sorted(config.enabled_cameras())
     if not names:
         print("error: no cameras are enabled", file=sys.stderr)
-        return 1
+        return EXIT_CONFIG
 
     print(f"ok: {len(names)} camera(s) enabled: {', '.join(names)}")
     print(f"ok: timezone {config.site.timezone.key}")
-    return 0
+    return EXIT_OK
 
 
 def _cmd_generate(args: argparse.Namespace) -> int:
     config = _load(args.cameras)
     if config is None:
-        return 1
+        return EXIT_CONFIG
 
     try:
         text = render(config, cameras_path=args.cameras)
     except ConfigError as exc:
         print(f"error: {exc}", file=sys.stderr)
-        return 1
+        return EXIT_CONFIG
 
     out: Path = args.out
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -245,7 +251,7 @@ def _cmd_generate(args: argparse.Namespace) -> int:
     # it only narrows who on the host can read it.
     out.chmod(0o600)
     print(f"wrote {out}")
-    return 0
+    return EXIT_OK
 
 
 def main(argv: list[str] | None = None) -> int:

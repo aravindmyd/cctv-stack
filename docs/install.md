@@ -220,7 +220,7 @@ no longer belongs to a running site is easy to forget and keeps billing.
 
 | Symptom | Cause |
 |---|---|
-| `config` exits non-zero; Frigate never starts | `cameras.yml` failed validation. Run the validate command above; the message names the key |
+| `config` exits 78; Frigate never starts | `cameras.yml` failed validation. Run the validate command above; the message names the key |
 | `pull access denied` for cctv-stack | `CCTV_IMAGE` is still `cctv-stack:local`, or the tag does not exist |
 | Uploader exits with code 78 | `CCTV_STORAGE_BUCKET` is set but a key is missing. Set the credentials, or unset the bucket for local-only |
 | Frigate restarts in a loop | Its log names the rejected config key. The generated file is overwritten on the next `docker compose up -d` |

@@ -63,9 +63,16 @@ cctv-stack/
 ├── AGENTS.md                  # ← you are here
 ├── README.md                  # human-facing entry point
 ├── docs/                      # PUBLISHED site — user-facing only
-│   ├── index.md               # landing page: what it is, install, health
-│   ├── glossary.md            # shared vocabulary
-│   └── runbooks/              # operator procedures
+│   ├── index.md               # landing page
+│   ├── install.md             # Compose from GHCR, pip, upgrades
+│   ├── configure.md           # cameras.yml, .env, adding cameras
+│   ├── frigate-ui.md          # Frigate web login
+│   ├── health.md              # health reports and admin endpoints
+│   ├── recover-uploads.md     # a stuck upload queue
+│   ├── rotate-credentials.md  # B2 keys and camera passwords
+│   ├── disaster-recovery.md   # what to back up, how to rebuild
+│   ├── clip-boundaries.md     # clips that are short or misaligned
+│   └── glossary.md            # shared vocabulary
 ├── internal/                  # design authority — never published
 │   ├── index.md               # internal map + reading order
 │   ├── prd.md                 # product requirements (input, immutable)
@@ -156,7 +163,7 @@ specified in the linked design doc.
 | `docker compose up -d` | Start the stack directly | planned | [`hld.md`](internal/architecture/hld.md) |
 | `tests/integration/run.sh` | Run the live integration suite against RustFS (starts and stops it) | **built** | [`tests/integration/README.md`](tests/integration/README.md) |
 | `tests/e2e/run.sh` | Run the synthetic camera → Frigate review → canonical clip pipeline | **built** | [`tests/e2e/run.sh`](tests/e2e/run.sh) |
-| `scripts/doctor.sh` | Diagnose a broken installation | planned | [`runbooks/install.md`](docs/runbooks/install.md) |
+| `scripts/doctor.sh` | Diagnose a broken installation | planned | [`install.md`](docs/install.md) |
 
 Client-site packaging is specified in [`.private/plans/packaging.md`](.private/plans/packaging.md):
 `install.sh` remains the on-host entry point, but a client receives a signed release

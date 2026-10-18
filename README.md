@@ -221,7 +221,7 @@ cd cctv-stack
 ```
 
 The first run creates `.env` and `config/cameras.yml`; edit both and run it again. See
-[`docs/runbooks/install.md`](docs/runbooks/install.md) for the operator procedure and
+[`docs/install.md`](docs/install.md) for the operator procedure and
 [`CONTRIBUTING.md`](CONTRIBUTING.md) for how releases are built and delivered.
 
 ## Compatibility
@@ -238,10 +238,11 @@ The first run creates `.env` and `config/cameras.yml`; edit both and run it agai
 
 Full documentation: **https://aravindmyd.github.io/cctv-stack/**
 
-- [Install](docs/runbooks/install.md) — install and verify
-- [Add or change a camera](docs/runbooks/add-a-camera.md) — a configuration change, not code
-- [Frigate UI authentication](docs/runbooks/frigate-authentication.md)
-- [Recover failed uploads](docs/runbooks/recover-failed-uploads.md)
+- [Install](docs/install.md) — Docker Compose from the published image, or pip
+- [Configure](docs/configure.md) — `cameras.yml`, `.env`, adding a camera
+- [Frigate UI login](docs/frigate-ui.md)
+- [Health](docs/health.md) — endpoints and what to check first
+- [Recover failed uploads](docs/recover-uploads.md)
 - [Glossary](docs/glossary.md) — the vocabulary these docs use
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — development, CI and release process
 

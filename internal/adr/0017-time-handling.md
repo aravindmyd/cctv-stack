@@ -95,7 +95,7 @@ Supporting decisions:
   own segment naming and might therefore follow the container's `TZ`. Measured on
   2026-09-13 with `TZ=Asia/Kolkata` and a local clock reading 00:24 IST: segments landed
   under `recordings/2026-09-12/18/`, which is UTC. The tree is UTC whatever the container
-  is set to, so [`disaster-recovery.md`](../runbooks/disaster-recovery.md) may rely on
+  is set to, so [`disaster-recovery.md`](../../docs/disaster-recovery.md) may rely on
   that, and no code change follows. The measurement came free with the first run of
   dev-synthetic/ (in the repo root — removed from docs)
 - **Displayed time can disagree with Frigate's own UI** if the two are configured with

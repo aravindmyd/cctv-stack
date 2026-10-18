@@ -11,15 +11,17 @@ edit_uri: edit/master/docs/
 nav:
   - Home: index.md
   - Getting started:
-    - Install: runbooks/install.md
-    - Add or change a camera: runbooks/add-a-camera.md
-    - Frigate UI authentication: runbooks/frigate-authentication.md
-  - Operating:
-    - Recover failed uploads: runbooks/recover-failed-uploads.md
-    - Rotate credentials: runbooks/rotate-credentials.md
-    - Disaster recovery: runbooks/disaster-recovery.md
-    - Clip boundaries: runbooks/clip-boundaries.md
-  - Glossary: glossary.md
+    - Install: install.md
+    - Configure: configure.md
+    - Frigate UI login: frigate-ui.md
+  - Running it:
+    - Health: health.md
+    - Recover failed uploads: recover-uploads.md
+    - Rotate credentials: rotate-credentials.md
+    - Disaster recovery: disaster-recovery.md
+  - Reference:
+    - Clip boundaries: clip-boundaries.md
+    - Glossary: glossary.md
 
 theme:
   name: material

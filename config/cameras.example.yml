@@ -34,7 +34,7 @@ frigate:
   auth:
     # `true` puts the Frigate UI on https://127.0.0.1:8971 behind a login. The password is
     # generated on first start and printed in Frigate's log — see
-    # docs/runbooks/frigate-authentication.md before relying on it.
+    # docs/frigate-ui.md before relying on it.
     #
     # If left `false`, the generated config's `auth.enabled: false` is safe ONLY because
     # Frigate's internal port 5000 is never published. Never publish that port.

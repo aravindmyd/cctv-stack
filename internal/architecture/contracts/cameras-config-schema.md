@@ -44,7 +44,7 @@ site:
 frigate:
   auth:
     enabled: false                        # true => the UI on 8971 requires a login
-                                          # procedure: runbooks/frigate-authentication.md
+                                          # procedure: docs/frigate-ui.md
 
 defaults:
   detect:
@@ -171,7 +171,7 @@ a camera cannot have its own copy of a process-wide setting.
 
 | Field | Type | Default | Validation | Effect |
 |---|---|---|---|---|
-| `auth.enabled` | bool | `false` | — | Projected to Frigate `auth.enabled`. `true` puts the Web UI on `8971` behind a login; see [`runbooks/frigate-authentication.md`](../../runbooks/frigate-authentication.md). Off is safe **only** because port `5000` is never published — that port is exempt from auth by design |
+| `auth.enabled` | bool | `false` | — | Projected to Frigate `auth.enabled`. `true` puts the Web UI on `8971` behind a login; see [`docs/frigate-ui.md`](../../../docs/frigate-ui.md). Off is safe **only** because port `5000` is never published — that port is exempt from auth by design |
 
 Enabling it does not affect this stack's own services: they talk to Frigate's
 internal port `5000`, which [`frigate-integration.md`](frigate-integration.md#2-authentication)
@@ -304,7 +304,7 @@ view can only play a go2rtc stream; with none configured it falls back to jsmpeg
 fed from the `detect` role, which is the low-resolution sub stream. Registering
 the main stream is what puts the high-quality feed in the UI. Pointing `record`
 and `detect` at the local restream means the camera still sees **two**
-connections per camera — the budget [`runbooks/install.md`](../../runbooks/install.md)
+    connections per camera — the budget [`docs/install.md`](../../../docs/install.md)
 documents — instead of four.
 
 > **The generated file contains camera credentials in plaintext.** `${VAR}` is

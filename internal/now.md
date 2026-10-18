@@ -60,9 +60,9 @@ The following files are modified but not committed:
 - `internal/architecture/contracts/cameras-config-schema.md`
 - `internal/architecture/contracts/frigate-integration.md`
 - `docs/index.md`
-- `docs/runbooks/install.md`
-- `docs/runbooks/rotate-credentials.md`
-- `docs/runbooks/frigate-authentication.md` (new, untracked)
+- `docs/install.md`
+- `docs/rotate-credentials.md`
+- `docs/frigate-ui.md` (new, untracked)
 
 These are active working changes, not release-ready.
 

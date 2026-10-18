@@ -65,17 +65,18 @@ Only two open questions touch M1, and both are answered by running the probe: **
 
 Same as above, then:
 
-8. runbooks/ — what operating this actually looks like
+8. [`../docs/`](../docs/index.md) — the published site, which is what operators read
 
 ### If you are the operator
 
-1. [`runbooks/install.md`](../docs/runbooks/install.md)
-2. [`runbooks/add-a-camera.md`](../docs/runbooks/add-a-camera.md)
-3. [`runbooks/frigate-authentication.md`](../docs/runbooks/frigate-authentication.md) — turn on, recover, or turn off the Frigate UI login
-4. [`runbooks/recover-failed-uploads.md`](../docs/runbooks/recover-failed-uploads.md)
-5. [`runbooks/rotate-credentials.md`](../docs/runbooks/rotate-credentials.md)
-6. [`runbooks/disaster-recovery.md`](../docs/runbooks/disaster-recovery.md)
-7. [`runbooks/clip-boundaries.md`](../docs/runbooks/clip-boundaries.md) — why a clip can look fine and still be wrong
+1. [`install.md`](../docs/install.md)
+2. [`configure.md`](../docs/configure.md) — cameras, padding, retention
+3. [`frigate-ui.md`](../docs/frigate-ui.md) — put the Frigate web UI behind a login
+4. [`health.md`](../docs/health.md)
+5. [`recover-uploads.md`](../docs/recover-uploads.md)
+6. [`rotate-credentials.md`](../docs/rotate-credentials.md)
+7. [`disaster-recovery.md`](../docs/disaster-recovery.md)
+8. [`clip-boundaries.md`](../docs/clip-boundaries.md) — why a clip can look fine and still be wrong
 
 ---
 
@@ -141,14 +142,17 @@ Same as above, then:
 | [`adr/0019-rustfs-as-s3-test-double.md`](adr/0019-rustfs-as-s3-test-double.md) | RustFS as the S3 test double for integration testing | 🛠 |
 | [`adr/0020-release-artifacts-and-delivery-modes.md`](adr/0020-release-artifacts-and-delivery-modes.md) | A signed, digest-pinned release bundle; connected, mirrored and air-gapped delivery | 📐 |
 
-### Runbooks
+### Published site
 
-| Doc | Purpose | Status |
-|---|---|---|
-| [`runbooks/install.md`](../docs/runbooks/install.md) | Install and verify | 📐 |
-| [`runbooks/add-a-camera.md`](../docs/runbooks/add-a-camera.md) | Add or change a camera | 📐 |
-| [`runbooks/frigate-authentication.md`](../docs/runbooks/frigate-authentication.md) | Enable, recover, or disable the Frigate UI login | ✅ |
-| [`runbooks/recover-failed-uploads.md`](../docs/runbooks/recover-failed-uploads.md) | Diagnose and drain a stuck upload queue | 📐 |
-| [`runbooks/rotate-credentials.md`](../docs/runbooks/rotate-credentials.md) | B2 keys, camera passwords, Frigate auth | 📐 |
-| [`runbooks/disaster-recovery.md`](../docs/runbooks/disaster-recovery.md) | Rebuild on new hardware | 📐 |
-| [`runbooks/clip-boundaries.md`](../docs/runbooks/clip-boundaries.md) | Diagnose clips that are short, holed, or misaligned | 📐 |
+| Page | Covers |
+|---|---|
+| [`index.md`](../docs/index.md) | Landing page |
+| [`install.md`](../docs/install.md) | Compose from GHCR, pip, upgrades |
+| [`configure.md`](../docs/configure.md) | `cameras.yml`, `.env`, camera changes |
+| [`frigate-ui.md`](../docs/frigate-ui.md) | Frigate UI login |
+| [`health.md`](../docs/health.md) | Health reports and admin endpoints |
+| [`recover-uploads.md`](../docs/recover-uploads.md) | Diagnose a stuck upload queue |
+| [`rotate-credentials.md`](../docs/rotate-credentials.md) | B2 keys and camera passwords |
+| [`disaster-recovery.md`](../docs/disaster-recovery.md) | What to back up and how to rebuild |
+| [`clip-boundaries.md`](../docs/clip-boundaries.md) | Clips that are short or misaligned |
+| [`glossary.md`](../docs/glossary.md) | Vocabulary |

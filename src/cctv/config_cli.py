@@ -61,12 +61,12 @@ _HEADER = """\
 # While it is off, that is safe ONLY because Frigate's internal port (5000) is never
 # published outside the compose network — Frigate resolves requests arriving on it as
 # anonymous admin. Publishing that port would turn this file into a remote admin bypass.
-# To turn the login on: docs/runbooks/frigate-authentication.md
+# To turn the login on: docs/frigate-ui.md
 """
 
 #: go2rtc's RTSP restream inside Frigate's container. The camera's ffmpeg inputs read from
 #: here rather than from the camera, so Frigate still opens exactly two connections per
-#: camera (main + sub) — the budget `docs/runbooks/install.md` documents — instead of four.
+#: camera (main + sub) — the budget `docs/install.md` documents — instead of four.
 #: The same two streams also serve the Web UI.
 _RESTREAM_BASE = "rtsp://127.0.0.1:8554"
 

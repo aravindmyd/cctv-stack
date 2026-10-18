@@ -142,7 +142,7 @@ not_before = review.end_time + post_roll_s + segment_flush_grace_s
 | `requested_start` before the review | Frigate's review begins when the object is first tracked, so the approach is already missing without pre-roll |
 | `requested_end` after the review | The review ends when activity stops, which is usually before the subject has left frame |
 | Asymmetric | Wanted in practice: post-roll longer than pre-roll. Symmetric padding would inflate every clip ([ADR-0015](../../adr/0015-clip-boundaries-and-padding.md)) |
-| `not_before` | Waits for Frigate's segment flush, which is what prevents silent truncation. **Measured floor is 10 s** — see [`spike/RESULTS.md`](../../../spike/RESULTS.md) |
+| `not_before` | Waits for Frigate's segment flush, which is what prevents silent truncation. **Measured floor is 10 s** — see spike/RESULTS.md (in the repo root — removed from docs) |
 
 Both rolls are per-camera overridable in `cameras.yml`, because a driveway where cars
 manoeuvre wants a longer post-roll than a doorway.
@@ -358,7 +358,7 @@ VALUES (..., 'PENDING', ...);
 The requested range, the achieved duration, the coverage ratio, the largest gap, and the
 fetch-attempt count are all persisted. They are what makes [INV-14](../invariants.md)
 auditable after the fact, and they turn "are the clips right?" into a query — see
-[`database-schema.md`](../contracts/database-schema.md#23-clips--the-central-table).
+[`database-schema.md`](../contracts/database-schema.md#23-clips-the-central-table).
 
 `upload_state = 'PENDING'` is what hands the clip to the uploader. A `SKIPPED_BY_POLICY`
 insert is used instead when the camera has `retention.upload: false`.
@@ -586,7 +586,7 @@ headroom exhausted      → data loss, recorded in EXPIRED_BEFORE_FETCH, counted
 |---|---|---|
 | `pre_roll_s` | 5.0 | Footage included before `event.start_time`. Per-camera overridable |
 | `post_roll_s` | 10.0 | Footage included after `event.end_time`. Per-camera overridable |
-| `segment_flush_grace_s` | **15** | Wait after the roll before fetching, so Frigate has flushed the final segment. **Measured floor is 10 s** — see [`spike/RESULTS.md`](../../../spike/RESULTS.md). Raise this first if `flush_pressure` is high |
+| `segment_flush_grace_s` | **15** | Wait after the roll before fetching, so Frigate has flushed the final segment. **Measured floor is 10 s** — see spike/RESULTS.md (in the repo root — removed from docs). Raise this first if `flush_pressure` is high |
 | `max_flush_retries` | 3 | Re-fetch attempts when coverage is below `coverage_retry` |
 | `flush_retry_delay_s` | 15 | Delay between re-fetches |
 | `coverage_ok` | 0.95 | Accept at or above this ratio |

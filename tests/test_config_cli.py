@@ -32,6 +32,8 @@ from cctv.config_cli import build_frigate_config, main, render
 
 MAIN_URL = "rtsp://192.168.1.50:554/stream1"
 SUB_URL = "rtsp://192.168.1.50:554/stream2"
+#: Frigate's internal go2rtc restream. The camera's ffmpeg inputs read this, not the camera.
+RESTREAM = "rtsp://127.0.0.1:8554"
 
 HEAD = """\
 site:
@@ -128,6 +130,7 @@ def test_the_file_leads_with_the_process_wide_settings(tmp_path: Path) -> None:
     assert list(out) == [
         "version",
         "mqtt",
+        "go2rtc",
         "auth",
         "detectors",
         "objects",
@@ -140,7 +143,7 @@ def test_a_camera_entry_is_the_projection_then_the_host_profile(
 ) -> None:
     """`record` comes from `to_frigate`; the rest is the v0.1 profile, appended. Pinning the
     whole order is what makes a regeneration diff reviewable."""
-    assert list(entry) == ["record", "ffmpeg", "detect", "objects", "snapshots"]
+    assert list(entry) == ["record", "ffmpeg", "live", "detect", "objects", "snapshots"]
 
 
 def test_the_output_is_byte_identical_for_the_same_input(tmp_path: Path) -> None:
@@ -171,11 +174,22 @@ def test_a_sub_stream_becomes_the_detect_input_and_the_main_is_kept_for_record(
     entry: dict[str, Any],
 ) -> None:
     """The sub-stream is already the low-resolution stream the camera produces for this
-    purpose, so decoding it is cheaper than downscaling the main one."""
+    purpose, so decoding it is cheaper than downscaling the main one.
+
+    Both inputs read the *local restream*, not the camera: that is what keeps the camera at
+    two connections while go2rtc also feeds the live view."""
     assert entry["ffmpeg"] == {
         "inputs": [
-            {"path": MAIN_URL, "roles": ["record"]},
-            {"path": SUB_URL, "roles": ["detect"]},
+            {
+                "path": f"{RESTREAM}/front-door",
+                "input_args": "preset-rtsp-restream",
+                "roles": ["record"],
+            },
+            {
+                "path": f"{RESTREAM}/front-door_sub",
+                "input_args": "preset-rtsp-restream",
+                "roles": ["detect"],
+            },
         ]
     }
 
@@ -184,7 +198,70 @@ def test_without_a_sub_stream_one_input_takes_both_roles(tmp_path: Path) -> None
     """Two inputs reading the same URL would be two decoders for one scene."""
     entry = build_frigate_config(make_config(tmp_path, NO_SUB))["cameras"]["front-door"]
 
-    assert entry["ffmpeg"] == {"inputs": [{"path": MAIN_URL, "roles": ["record", "detect"]}]}
+    assert entry["ffmpeg"] == {
+        "inputs": [
+            {
+                "path": f"{RESTREAM}/front-door",
+                "input_args": "preset-rtsp-restream",
+                "roles": ["record", "detect"],
+            }
+        ]
+    }
+
+
+def test_the_camera_urls_are_opened_by_go2rtc_not_by_a_second_ffmpeg_reader(
+    tmp_path: Path,
+) -> None:
+    """Frigate's UI can only play a go2rtc stream; without one it silently falls back to
+    jsmpeg on the *detect* role, which is the low-resolution sub stream. Emitting the main
+    stream is what fixes that.
+
+    It must not cost extra connections: if the ffmpeg inputs also opened the camera, the
+    camera would see four connections instead of two, which is the limit
+    `runbooks/install.md` warns about.
+    """
+    out = build_frigate_config(make_config(tmp_path))
+
+    assert out["go2rtc"]["streams"] == {
+        "front-door": MAIN_URL,
+        "front-door_sub": SUB_URL,
+    }
+    paths = [source["path"] for source in out["cameras"]["front-door"]["ffmpeg"]["inputs"]]
+    assert paths == [f"{RESTREAM}/front-door", f"{RESTREAM}/front-door_sub"]
+
+
+def test_the_default_dashboard_plays_the_main_stream_first(tmp_path: Path) -> None:
+    """Frigate's default "All Cameras" dashboard always plays the first entry, so `Main`
+    has to be first or the high-quality stream is only reachable per camera."""
+    entry = build_frigate_config(make_config(tmp_path))["cameras"]["front-door"]
+
+    assert entry["live"] == {"streams": {"Main": "front-door", "Sub": "front-door_sub"}}
+    assert next(iter(entry["live"]["streams"])) == "Main"
+
+
+def test_without_a_sub_stream_there_is_only_a_main_live_stream(tmp_path: Path) -> None:
+    out = build_frigate_config(make_config(tmp_path, NO_SUB))
+
+    assert out["go2rtc"]["streams"] == {"front-door": MAIN_URL}
+    assert out["cameras"]["front-door"]["live"] == {"streams": {"Main": "front-door"}}
+
+
+def test_a_disabled_camera_gets_no_restream_and_no_live_stream(tmp_path: Path) -> None:
+    """A retired camera contributes nothing to go2rtc either, so its URL does not linger in
+    the generated file as dead plumbing."""
+    text = cameras(
+        FRONT_DOOR,
+        """\
+        retired:
+          enabled: false
+          rtsp:
+            main: rtsp://192.168.1.52:554/stream1
+        """,
+    )
+    out = build_frigate_config(make_config(tmp_path, text))
+
+    assert "retired" not in out["go2rtc"]["streams"]
+    assert "retired" not in out["cameras"]
 
 
 @pytest.mark.parametrize("text", [BASE, NO_SUB])
@@ -291,6 +368,16 @@ def test_the_mqtt_and_auth_blocks_are_explicit(tmp_path: Path) -> None:
     assert out["version"] == "0.18-0"
 
 
+def test_the_ui_login_is_emitted_when_the_site_asks_for_it(tmp_path: Path) -> None:
+    """The switch has to survive regeneration. If it lived only in the generated file, the
+    next `docker compose up` would silently turn the UI back into an open one."""
+    text = "frigate:\n  auth:\n    enabled: true\n" + BASE
+
+    out = build_frigate_config(make_config(tmp_path, text))
+
+    assert out["auth"] == {"enabled": True}
+
+
 def test_the_generated_file_carries_no_top_level_timezone(tmp_path: Path) -> None:
     """Frigate 0.18 refuses the whole config when a top-level `timezone` is present
     (`Extra inputs are not permitted`) and then starts in safe mode with zero cameras —
@@ -372,11 +459,13 @@ def test_the_header_says_the_file_is_generated_and_derived(tmp_path: Path) -> No
 
 
 def test_the_header_warns_about_the_published_port(tmp_path: Path) -> None:
-    """The one sentence standing between `auth.enabled: false` and a remote admin bypass."""
+    """The one sentence standing between `auth.enabled: false` and a remote admin bypass,
+    plus the pointer to the procedure that turns the login on."""
     rendered = render(make_config(tmp_path), cameras_path=tmp_path / "cameras.yml")
 
-    assert "auth.enabled: false" in rendered
+    assert "frigate.auth.enabled" in rendered
     assert "5000" in rendered
+    assert "frigate-authentication.md" in rendered
 
 
 # --------------------------------------------------------------------------------------

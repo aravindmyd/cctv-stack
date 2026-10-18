@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-10-06
 - **Deciders:** project owner
-- **Related:** [`cloud-object-layout.md`](../architecture/contracts/cloud-object-layout.md) §6.1, [`lld/00-overview.md`](../architecture/lld/00-overview.md) §5, [`ADR-0005`](0005-b2-behind-storage-adapter.md), [`ADR-0014`](0014-pinned-image-digests.md), [`tests/integration/README.md`](../../tests/integration/README.md)
+- **Related:** [`cloud-object-layout.md`](../architecture/contracts/cloud-object-layout.md) §6.1, [`lld/00-overview.md`](../architecture/lld/00-overview.md) §5, [`ADR-0005`](0005-b2-behind-storage-adapter.md), [`ADR-0014`](0014-pinned-image-digests.md)
 
 ---
 

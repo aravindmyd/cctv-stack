@@ -280,7 +280,7 @@ Write down, in your own words, what was missing. Then fix it:
 
 | If… | Then |
 |---|---|
-| You had no backup | Turn on the backup timer. See [OQ-7](../plans/open-questions.md#oq-7--install-a-backup-timer-by-default) |
+| You had no backup | Turn on the backup timer. See OQ-7 (tracked in `.private/plans/open-questions.md`, not in docs) |
 | The backup was stale | Check `/status` → backup freshness. It should be a health check you can see |
 | You did not know your B2 key | Store it in a password manager, not only in `.env` |
 | You did not know which cameras existed | `cameras.yml` should be in the config backup. Verify it is |

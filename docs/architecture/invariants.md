@@ -24,7 +24,7 @@ permanent data loss. Retention is a *space* policy; it must never override a
 - The cleanup service operates on a SQL query whose `WHERE` clause requires
   `upload_state IN ('UPLOADED', 'SKIPPED_BY_POLICY')`. It never walks the
   filesystem to decide what to delete. See
-  [`lld/05-cleanup.md`](architecture/lld/05-cleanup.md).
+  [`lld/05-cleanup.md`](lld/05-cleanup.md).
 - Clips in `FAILED`, `PENDING`, or `UPLOADING` state are invisible to the local
   retention sweep. They age without limit and surface as an alert instead.
 - Force deletion requires an explicit flag and is logged with the operator's
@@ -155,7 +155,7 @@ because they are discovered by discovering missing footage.
 
 **Enforcement.**
 - The health contract in
-  [`contracts/service-contracts.md`](architecture/contracts/service-contracts.md)
+  [`contracts/service-contracts.md`](contracts/service-contracts.md)
   defines a fixed schema with a mandatory `checks[]` array naming each dependency.
 - `HEALTHY` is returned by *derivation*: every check in the array must pass. It is
   never a hardcoded literal.
@@ -388,7 +388,7 @@ from that asymmetry.
 **Enforcement.**
 - Fetch range is `[event.start − pre_roll_s, event.end + post_roll_s]` via the range
   endpoint, so pre-roll and post-roll are independently configurable and neither is
-  inflated to match the other ([ADR-0015](adr/0015-clip-boundaries-and-padding.md)).
+  inflated to match the other ([ADR-0015](../adr/0015-clip-boundaries-and-padding.md)).
 - Fetching is scheduled at `event.end + post_roll + segment_flush_grace` and cannot run
   earlier, so the final recording segment has time to reach disk.
 - Coverage is computed as `actual_duration / requested_duration` and persisted on every

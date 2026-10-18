@@ -28,6 +28,18 @@ site:
 # without an explicit override.
 min_headroom_days: 2
 
+# Settings for Frigate itself, rather than for a camera. They are not part of `defaults`:
+# a camera cannot have its own copy of a process-wide setting.
+frigate:
+  auth:
+    # `true` puts the Frigate UI on https://127.0.0.1:8971 behind a login. The password is
+    # generated on first start and printed in Frigate's log — see
+    # docs/runbooks/frigate-authentication.md before relying on it.
+    #
+    # If left `false`, the generated config's `auth.enabled: false` is safe ONLY because
+    # Frigate's internal port 5000 is never published. Never publish that port.
+    enabled: false
+
 # Applies to every camera unless the camera overrides it.
 defaults:
   detect:

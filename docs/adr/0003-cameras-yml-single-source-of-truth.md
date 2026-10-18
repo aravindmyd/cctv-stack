@@ -84,7 +84,7 @@ retention, auth) that depends on the host profile.
   refusal to overwrite hand-edits, and by showing the diff during regeneration
 - **Some Frigate options are not expressible** through our schema. A deliberate
   escape hatch is needed for advanced users, and its design is deferred (see
-  [`plans/open-questions.md`](../plans/open-questions.md))
+  plans/open-questions.md (moved to `.private/plans/`))
 - **Two files to understand**: the source and the generated output. The generated file
   is explicitly labelled as disposable, which helps
 

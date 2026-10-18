@@ -15,12 +15,18 @@ should find out before it is running, not after an outage.
 
 ## What is v0.1 and what is not
 
-The generator emits a **generic/CPU host profile**: `ffmpeg` inputs from the camera URLs, a
-CPU detector, detection resolution. Hardware acceleration profiles (`hwaccel_args`, Coral
-detectors, model selection) belong to
+The generator emits a **generic/CPU host profile**: `ffmpeg` inputs from the local go2rtc
+restream, a CPU detector, detection resolution. Hardware acceleration profiles
+(`hwaccel_args`, Coral detectors, model selection) belong to
 [LLD 07](../../../docs/architecture/lld/07-installer-and-host-profiles.md) and are not
 guessed at here. A generated config that is obviously missing a profile is better than one
 that quietly picked the wrong one.
+
+The one piece of plumbing that is not optional is `go2rtc`. Frigate's live view only uses a
+go2rtc stream; without one it falls back to jsmpeg, which is fed from the `detect` role —
+the sub stream. Emitting `go2rtc.streams` plus `live.streams` is what makes the UI show the
+main stream, and pointing the `ffmpeg` inputs at the local restream keeps the camera's
+connection count where it was.
 """
 
 from __future__ import annotations
@@ -51,10 +57,23 @@ _HEADER = """\
 # RTSP URLs carry a username and password, so this file must never enter version control
 # (INV-2). It is listed in .gitignore; keep it there.
 #
-# `auth.enabled: false` below is safe ONLY because Frigate's internal port (5000) is never
+# Frigate's own UI login is OFF unless `frigate.auth.enabled: true` is set in cameras.yml.
+# While it is off, that is safe ONLY because Frigate's internal port (5000) is never
 # published outside the compose network — Frigate resolves requests arriving on it as
 # anonymous admin. Publishing that port would turn this file into a remote admin bypass.
+# To turn the login on: docs/runbooks/frigate-authentication.md
 """
+
+#: go2rtc's RTSP restream inside Frigate's container. The camera's ffmpeg inputs read from
+#: here rather than from the camera, so Frigate still opens exactly two connections per
+#: camera (main + sub) — the budget `docs/runbooks/install.md` documents — instead of four.
+#: The same two streams also serve the Web UI.
+_RESTREAM_BASE = "rtsp://127.0.0.1:8554"
+
+
+def _sub_stream(camera_name: str) -> str:
+    """go2rtc stream name for a camera's sub stream. Deterministic, never user-supplied."""
+    return f"{camera_name}_sub"
 
 
 def build_frigate_config(config: CamerasConfig) -> dict[str, Any]:
@@ -67,16 +86,27 @@ def build_frigate_config(config: CamerasConfig) -> dict[str, Any]:
     # different question.
     cameras = projected.pop("cameras", {})
 
-    tracked = {
-        label for camera in config.enabled_cameras().values() for label in camera.detect.objects
-    }
+    enabled = config.enabled_cameras()
+    tracked = {label for camera in enabled.values() for label in camera.detect.objects}
+
+    # One go2rtc stream per camera input. Frigate's live view can only use a go2rtc stream:
+    # with none configured it falls back to jsmpeg, which is fed from the *detect* role — the
+    # low-resolution sub stream. Registering the main stream here is what makes the UI show
+    # the high-quality feed. It costs no extra camera connection because the ffmpeg inputs
+    # below read this restream instead of the camera.
+    streams: dict[str, str] = {}
+    for name, camera in enabled.items():
+        streams[name] = camera.rtsp_main
+        if camera.rtsp_sub:
+            streams[_sub_stream(name)] = camera.rtsp_sub
 
     out: dict[str, Any] = {
         # Frigate rewrites this itself. Emitted so the file is not read as an ancient config
         # on first start; revisit when the pinned Frigate version moves.
         "version": "0.18-0",
         "mqtt": {"enabled": True, "host": "mosquitto", "port": 1883},
-        "auth": {"enabled": False},
+        "go2rtc": {"streams": streams},
+        "auth": {"enabled": config.frigate_auth.enabled},
         "detectors": {"cpu": {"type": "cpu", "num_threads": 2}},
         "objects": {"track": sorted(tracked)},
     }
@@ -89,19 +119,44 @@ def build_frigate_config(config: CamerasConfig) -> dict[str, Any]:
     # keys here would make this function silently lossy the next time that one grows.
     out.update(projected)
 
-    for name, camera in config.enabled_cameras().items():
+    for name, camera in enabled.items():
         entry: dict[str, Any] = cameras.setdefault(name, {})
 
         # A sub-stream, when the camera has one, is what detection should use: it is already
         # the low-resolution stream the camera produces for this purpose, so decoding it is
         # cheaper than downscaling the main one. With no sub-stream, the main input takes
         # both roles — one input, because two decoders reading the same URL is pure waste.
-        inputs: list[dict[str, Any]] = [{"path": camera.rtsp_main, "roles": ["record"]}]
+        #
+        # Both inputs read the local restream rather than the camera URL, so the camera sees
+        # two connections (one per go2rtc stream) instead of four, and the same feed serves
+        # recording, detection and the live UI.
+        inputs: list[dict[str, Any]] = [
+            {
+                "path": f"{_RESTREAM_BASE}/{name}",
+                "input_args": "preset-rtsp-restream",
+                "roles": ["record"],
+            }
+        ]
         if camera.rtsp_sub:
-            inputs.append({"path": camera.rtsp_sub, "roles": ["detect"]})
+            inputs.append(
+                {
+                    "path": f"{_RESTREAM_BASE}/{_sub_stream(name)}",
+                    "input_args": "preset-rtsp-restream",
+                    "roles": ["detect"],
+                }
+            )
         else:
             inputs[0]["roles"].append("detect")
         entry["ffmpeg"] = {"inputs": inputs}
+
+        # Which go2rtc streams the UI may play. Frigate's default dashboard always plays the
+        # *first* entry, so `Main` has to come first; `Sub` is a per-device choice in the Live
+        # view dropdown. Without this block the UI has no go2rtc stream to play at all and
+        # stays on the jsmpeg fallback above.
+        live_streams: dict[str, str] = {"Main": name}
+        if camera.rtsp_sub:
+            live_streams["Sub"] = _sub_stream(name)
+        entry["live"] = {"streams": live_streams}
 
         entry["detect"] = {
             "enabled": camera.detect.enabled,

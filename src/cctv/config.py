@@ -44,6 +44,7 @@ __all__ = [
     "ClipConfig",
     "ConfigError",
     "DetectConfig",
+    "FrigateAuthConfig",
     "NotifyConfig",
     "RecordConfig",
     "RetentionConfig",
@@ -148,6 +149,21 @@ class CameraConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class FrigateAuthConfig:
+    """Whether Frigate's own UI login is on (`frigate.auth.enabled`).
+
+    Not camera data, so it sits beside `site` rather than under `defaults`. It is off by
+    default because a fresh install has no stored password yet — Frigate generates one on
+    the first start with auth enabled and prints it to the log — and because the generated
+    config is only reachable through the loopback-bound authenticated port anyway. Turning
+    it on is a one-line change; see the runbook `frigate-authentication.md` for the
+    procedure.
+    """
+
+    enabled: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class CamerasConfig:
     site: SiteConfig
     cameras: Mapping[str, CameraConfig]
@@ -155,6 +171,7 @@ class CamerasConfig:
     #: the installer can present them all at once instead of one per re-run.
     warnings: tuple[str, ...] = ()
     min_headroom_days: int = DEFAULT_MIN_HEADROOM_DAYS
+    frigate_auth: FrigateAuthConfig = FrigateAuthConfig()
 
     def enabled_cameras(self) -> Mapping[str, CameraConfig]:
         return {n: c for n, c in self.cameras.items() if c.enabled}
@@ -165,7 +182,7 @@ class CamerasConfig:
 # ---------------------------------------------------------------------------------------
 
 _ENV_RE = re.compile(r"\$\{(?P<name>[A-Za-z_][A-Za-z0-9_]*)\}")
-_TOP_LEVEL_KEYS = frozenset({"site", "defaults", "cameras", "min_headroom_days"})
+_TOP_LEVEL_KEYS = frozenset({"site", "frigate", "defaults", "cameras", "min_headroom_days"})
 _CAMERA_KEYS = frozenset(
     {
         "display_name",
@@ -252,6 +269,7 @@ def load_cameras_config(
 
     warnings: list[str] = []
     site = _parse_site(data["site"], warnings)
+    frigate_auth = _parse_frigate_auth(data.get("frigate"))
     defaults = data.get("defaults") or {}
     if not isinstance(defaults, Mapping):
         raise ConfigError(f"{source}: `defaults` must be a mapping.")
@@ -277,6 +295,7 @@ def load_cameras_config(
         cameras=cameras,
         warnings=tuple(warnings),
         min_headroom_days=min_headroom,
+        frigate_auth=frigate_auth,
     )
 
 
@@ -331,6 +350,26 @@ def _deep_merge(base: Mapping[str, Any], override: Mapping[str, Any]) -> dict[st
         else:
             out[key] = value
     return out
+
+
+def _parse_frigate_auth(data: Any) -> FrigateAuthConfig:
+    """`frigate:` holds process-wide Frigate settings. Today that is one switch.
+
+    It is deliberately not part of `defaults`: `defaults` is *camera* inheritance, and a
+    camera cannot have its own copy of Frigate's process-wide login setting.
+    """
+    if data is None:
+        return FrigateAuthConfig()
+    if not isinstance(data, Mapping):
+        raise ConfigError("frigate: must be a mapping with an `auth` key.")
+    _check_keys(data, frozenset({"auth"}), where="frigate")
+
+    auth = data.get("auth") or {}
+    if not isinstance(auth, Mapping):
+        raise ConfigError("frigate.auth: must be a mapping with an `enabled` key.")
+    _check_keys(auth, frozenset({"enabled"}), where="frigate.auth")
+
+    return FrigateAuthConfig(enabled=_bool(auth.get("enabled", False), "frigate.auth.enabled"))
 
 
 def _parse_site(data: Mapping[str, Any], warnings: list[str]) -> SiteConfig:

@@ -30,7 +30,7 @@ discover:
 | §4 lists `throttled`, `file_missing` and `invalid_request` alongside the rest | Mapped onto the six classes `clips.last_error_class` accepts | The column has a closed `CHECK` (database-schema §2.3). A seventh value would mean a table rebuild for a label, and the *decision that matters* — retry or not — is carried by `StorageError.retryable`. The message and the audit event name the specific cause |
 | §3 step 6 emits `system_events` on every success | One log line per upload plus the `upload_attempts` row; no per-success audit row | `system_events` is also the alert-deduplication store. ~100 success rows a day would be an audit trail whose signal is buried, and nothing alerts on success |
 | §6 measures `oldest_pending_age_s` from the clip's event | Measured from `COALESCE(materialised_at, created_at)` | A clip materialised an hour after its event is not an hour behind on *upload*. The number has to mean "how long has this been waiting to be uploaded" or it is not actionable |
-| §9 `/admin/verify` | **Not implemented** | It re-downloads a whole object, and downloads are the one thing B2 bills for. Nothing in M3's exit criteria needs it. `aws s3api head-object` answers the same question for free, because every object carries its own `sha256` in its metadata. Tracked in [`plans/backlog.md`](../../plans/backlog.md) |
+| §9 `/admin/verify` | **Not implemented** | It re-downloads a whole object, and downloads are the one thing B2 bills for. Nothing in M3's exit criteria needs it. `aws s3api head-object` answers the same question for free, because every object carries its own `sha256` in its metadata. Tracked in plans/backlog.md (moved to `.private/plans/`) |
 
 The checks this service reports are the six §8 requires plus `failed_permanent` and
 `upload_verification`: `state_db`, `storage_reachable`, `storage_credentials`,
@@ -227,7 +227,7 @@ Because they cannot succeed, and retrying them produces:
 - pointless API traffic against a provider that is already telling us no
 
 Fast-failing loudly is the correct behaviour. The runbook
-([`rotate-credentials.md`](../runbooks/rotate-credentials.md)) is the fix.
+(`runbooks/rotate-credentials.md`) is the fix.
 
 ### 4.2 Why `unknown` retries
 
@@ -272,7 +272,7 @@ a genuinely broken configuration surfaces the next morning rather than the next 
 
 **A `FAILED_PERMANENT` clip is not lost.** The local file is retained
 ([INV-1](../invariants.md)), an alert is raised, and
-[`recover-failed-uploads.md`](../runbooks/recover-failed-uploads.md) is the fix. The
+[`runbooks/recover-failed-uploads.md`](../../runbooks/recover-failed-uploads.md) is the fix. The
 worst outcome of reaching that state is a growing local backlog and a clear alert.
 
 ---

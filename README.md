@@ -64,6 +64,7 @@ A moving `:edge` tag follows `master`. If the registry package is private, run
 | `cctv-uploader` | Upload clips to B2 through the persisted retry state machine |
 | `cctv-cleanup` | Enforce local retention after a successful upload |
 | `cctv-status` | Serve the aggregate status page (`:8084/status`), health and metrics |
+| `cctv-host` | Detect this machine's host profile and Frigate's `shm_size` |
 
 The four services are long-running and configuration-driven; they take no command-line
 arguments. Run them under systemd, Docker, or Compose.

@@ -72,6 +72,32 @@ step "Building the image"
 docker compose build
 
 # ---------------------------------------------------------------------------------------
+# Detection runs in the image, not on the host: installing must never need Python here
+# (lld/07 §3). An unsupported machine exits 78 and the `&&` stops the script, so nothing is
+# pulled or started on a host the support matrix does not cover.
+step "Detecting this host"
+
+docker compose run --rm --no-deps config cctv-host
+
+shm_line=$(docker compose run --rm --no-deps --entrypoint sh config \
+  -c 'cctv-host --write /tmp/host.yml --shm-env --quiet') \
+  || die "this host is not supported. See internal/architecture/lld/07 for the support matrix."
+
+docker compose run --rm --no-deps --entrypoint sh config \
+  -c 'cctv-host --write /tmp/host.yml --quiet && cat /tmp/host.yml' \
+  > config/host.yml \
+  || die "could not write config/host.yml."
+
+# Frigate's shared memory is computed from the camera count and detection resolution; the
+# Docker default of 64 MB is the classic Frigate deployment failure (lld/07 §5.1).
+if grep -q '^FRIGATE_SHM_SIZE=' .env; then
+  say "Keeping the existing FRIGATE_SHM_SIZE in .env."
+else
+  printf '\n# Computed by install.sh from cameras.yml (lld/07 §5.1).\n%s\n' "$shm_line" >> .env
+  say "Set $shm_line in .env."
+fi
+
+# ---------------------------------------------------------------------------------------
 # Validation runs in the same image that generates the config, so "valid" cannot mean two
 # different things here and in the `config` service.
 step "Validating the configuration"

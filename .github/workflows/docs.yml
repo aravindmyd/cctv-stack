@@ -29,8 +29,10 @@ jobs:
           python-version: "3.12"
           enable-cache: true
 
-      - name: Install mkdocs-material
-        run: uv run pip install mkdocs-material
+      # mkdocs + mkdocs-material are in the `dev` group, so the same lockfile that
+      # pins them for the pre-commit hook pins them here (ADR-0018).
+      - name: Install the locked environment
+        run: uv sync
 
       - name: Build site
         run: uv run mkdocs build --strict --site-dir site
@@ -44,7 +46,10 @@ jobs:
     name: deploy to GitHub Pages
     needs: build
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/feat/v1' || github.event_name == 'workflow_dispatch'
+    # The `github-pages` environment only permits deployments from `master`. Building on
+    # every branch is useful, deploying from one is the policy — so a feature branch gets
+    # a green build and a skipped deploy instead of a red check it cannot fix.
+    if: github.ref_name == github.event.repository.default_branch
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

@@ -282,6 +282,13 @@ takes a database-level advisory lock (a row in `sweep_state` with a lease) so th
 instances cannot run simultaneously even if someone scales the service by mistake. Two
 concurrent cleanups would be survivable but confusing.
 
+> **Not implemented (2026-10-18).** `sweep_state` has no lease columns and no lock is
+taken; M4.14 is deferred by [ADR-0021](../../adr/0021-defer-force-delete-and-advisory-lock.md).
+> Deployments are a single compose stack on one host, operated by hand, so the scenario this
+> guards against cannot arise. The guards that prevent a duplicate pass from deleting an
+> ineligible clip are the ones in `src/cctv/cleanup.py`, and they are built and tested. The
+> lock should arrive with J2 cloud retention at the latest — see the ADR's revisit triggers.
+
 J1 and J2 run sequentially within a cycle so that cloud deletion never races local
 deletion of the same clip.
 
@@ -326,6 +333,14 @@ POST /admin/force-delete
 The friction is the feature. `FORCE_DELETED` exists in the state machine so that the
 act of giving up on a clip leaves a permanent, countable record rather than looking
 identical to a successful upload.
+
+> **Not implemented (2026-10-18).** No `/admin/force-delete` route exists; M4.13 is deferred
+> by [ADR-0021](../../adr/0021-defer-force-delete-and-advisory-lock.md). The state, the
+> `FAILED_PERMANENT → FORCE_DELETED` transition and the `system_events` audit table are all in
+> place, so implementing it later is a handler plus a route rather than a schema change. Until
+> then the only removal path is the manual one in
+> [`docs/recover-uploads.md`](../../../docs/recover-uploads.md) §6, which is not audited by the
+> software.
 
 ---
 

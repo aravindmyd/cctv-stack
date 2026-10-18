@@ -3,6 +3,16 @@
 **Implements:** [INV-6](../invariants.md)
 **Specified by:** [`contracts/service-contracts.md`](../contracts/service-contracts.md)
 
+> **Corrections (2026-10-19, 0.5.1).** Three behaviours were wrong in `0.5.0` and are fixed:
+> (1) `clip-worker` was probed at a `/health` it does not have — it keeps no state beyond the
+> database by design — so a healthy stack reported `UNKNOWN` forever. Its contribution is now
+> **derived** from the clip history: no history is healthy, and every camera with history going
+> `QUIET` is what a broken clip-worker looks like from outside. (2) The uploader degraded on
+> any verification other than a provider checksum, including the documented `verified_by="size"`
+> for multipart uploads; only `none` degrades now. (3) The generated Gatus config moved under
+> `data/gatus/` and Gatus's state into a named volume: Docker creates a missing bind-mount
+> source as root, which left a fresh install's Gatus in a crash loop.
+>
 > **Implementation status (2026-10-18).** Built: `src/cctv/status.py` (derivation, the answer
 > string, camera states, storage projection) and `src/cctv/status_service.py` (`cctv-status`,
 > schema `0003` for disk samples); then `src/cctv/monitoring.py` — the `MonitoringAdapter`, the
@@ -293,10 +303,9 @@ Generated as configuration, one entry per item:
 
 | Monitor | Type | Condition | Notes |
 |---|---|---|---|
-| `frigate` | HTTP | `/api/version` returns 200 | |
-| `clip-worker` | HTTP | `/health?strict=1` returns 200 | Strict: `DEGRADED` should alert |
-| `uploader` | HTTP | `/health?strict=1` returns 200 | |
-| `cleanup` | HTTP | `/health?strict=1` returns 200 | |
+| `frigate` | HTTP | `/api/stats` returns 200 | `/api/version` answers with an empty body, so it can never pass |
+| `uploader` | HTTP | `/health?strict=1` returns 200 | Strict: `DEGRADED` should alert |
+| `cleanup` | HTTP | `/health?strict=1` returns 200 | Strict: `DEGRADED` should alert |
 | `mosquitto` | TCP | port 1883 accepts | |
 | `storage` | push | heartbeat from uploader's `storage_reachable` | Not HTTP-probeable from outside |
 | `camera-<name>` | push | heartbeat from the collector | One per camera; dynamic |

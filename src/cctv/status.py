@@ -66,10 +66,14 @@ logger = logging.getLogger(__name__)
 #: The collector's own component name, in logs, health and `system_events`.
 COMPONENT = "status-collector"
 
-#: Everything the collector expects to hear from, in the order the page lists them. Frigate and
-#: storage are not here: neither speaks our `/health` contract, and both are observed
-#: differently.
-COMPONENT_NAMES: tuple[str, ...] = ("clip-worker", "uploader", "cleanup")
+#: Everything the collector expects to hear from over HTTP, in the order the page lists it.
+#: Frigate and storage are not here: neither speaks our `/health` contract, and both are
+#: observed differently. **`clip-worker` is not here either** — it has no health endpoint by
+#: design (`docs/health.md`): it keeps no state beyond the database, so there is nothing for
+#: it to report. Probing a URL that does not exist made a healthy stack look `UNKNOWN`
+#: forever, which is the opposite of what a status page is for. Its contribution is derived
+#: from the clip history below.
+COMPONENT_NAMES: tuple[str, ...] = ("uploader", "cleanup")
 
 #: Camera states. Separate from the component states on purpose: a camera is `ONLINE`,
 #: `OFFLINE` or `QUIET`, and calling it `HEALTHY` would invite somebody to alert on the wrong
@@ -158,7 +162,9 @@ class StatusSettings:
             return int(value)
 
         components = {
-            "clip-worker": env.get("CCTV_STATUS_CLIP_WORKER_URL", "http://clip-worker:8080"),
+            "clip-worker": env.get(
+                "CCTV_STATUS_CLIP_WORKER_URL", "http://clip-worker:8080"
+            ),
             "uploader": env.get("CCTV_STATUS_UPLOADER_URL", "http://uploader:8082"),
             "cleanup": env.get("CCTV_STATUS_CLEANUP_URL", "http://cleanup:8083"),
         }
@@ -179,19 +185,28 @@ class StatusSettings:
             camera_offline_grace_s=number("CCTV_STATUS_CAMERA_OFFLINE_GRACE_S", 300.0),
             camera_quiet_multiplier=number("CCTV_STATUS_CAMERA_QUIET_MULTIPLIER", 3.0),
             camera_quiet_min_gap_s=number("CCTV_STATUS_CAMERA_QUIET_MIN_GAP_S", 7200.0),
-            camera_quiet_min_events_7d=integer("CCTV_STATUS_CAMERA_QUIET_MIN_EVENTS_7D", 20),
+            camera_quiet_min_events_7d=integer(
+                "CCTV_STATUS_CAMERA_QUIET_MIN_EVENTS_7D", 20
+            ),
             disk_warn_pct=number("CCTV_STATUS_DISK_WARN_PCT", 15.0),
             disk_critical_pct=number("CCTV_STATUS_DISK_CRITICAL_PCT", 5.0),
             disk_project_warn_days=number("CCTV_STATUS_DISK_PROJECT_WARN_DAYS", 60.0),
-            disk_project_critical_days=number("CCTV_STATUS_DISK_PROJECT_CRITICAL_DAYS", 30.0),
+            disk_project_critical_days=number(
+                "CCTV_STATUS_DISK_PROJECT_CRITICAL_DAYS", 30.0
+            ),
             disk_projection_min_days_history=number(
                 "CCTV_STATUS_DISK_PROJECTION_MIN_DAYS_HISTORY", 3.0
             ),
             backup_stale_warn_s=number("CCTV_STATUS_BACKUP_STALE_WARN_S", 1800.0),
-            backup_stale_critical_s=number("CCTV_STATUS_BACKUP_STALE_CRITICAL_S", 21600.0),
+            backup_stale_critical_s=number(
+                "CCTV_STATUS_BACKUP_STALE_CRITICAL_S", 21600.0
+            ),
             cleanup_interval_s=number("CCTV_CLEANUP_RUN_INTERVAL_S", 3600.0),
-            frigate_ui_url=env.get("CCTV_STATUS_FRIGATE_UI_URL", DEFAULT_FRIGATE_UI_URL),
-            monitoring_url=(env.get("CCTV_STATUS_MONITORING_URL") or "").strip() or None,
+            frigate_ui_url=env.get(
+                "CCTV_STATUS_FRIGATE_UI_URL", DEFAULT_FRIGATE_UI_URL
+            ),
+            monitoring_url=(env.get("CCTV_STATUS_MONITORING_URL") or "").strip()
+            or None,
             gatus_config_path=(
                 Path(value)
                 if (value := (env.get("CCTV_STATUS_GATUS_CONFIG") or "").strip())
@@ -212,7 +227,9 @@ class StatusSettings:
                 "<= CCTV_STATUS_DISK_WARN_PCT <= 100."
             )
         if settings.camera_quiet_min_events_7d < 0:
-            raise ValueError("CCTV_STATUS_CAMERA_QUIET_MIN_EVENTS_7D cannot be negative.")
+            raise ValueError(
+                "CCTV_STATUS_CAMERA_QUIET_MIN_EVENTS_7D cannot be negative."
+            )
         return settings
 
 
@@ -232,7 +249,11 @@ class DiskFacts:
 
     @property
     def free_pct(self) -> float:
-        return 100.0 if self.total_bytes <= 0 else 100.0 * self.free_bytes / self.total_bytes
+        return (
+            100.0
+            if self.total_bytes <= 0
+            else 100.0 * self.free_bytes / self.total_bytes
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -328,7 +349,9 @@ class StatusSummary:
             return health.UNHEALTHY
         if days is not None and days < self.project_critical_days:
             return health.UNHEALTHY
-        if free_pct < self.disk_warn_pct or (days is not None and days < self.project_warn_days):
+        if free_pct < self.disk_warn_pct or (
+            days is not None and days < self.project_warn_days
+        ):
             return health.DEGRADED
         return health.HEALTHY
 
@@ -464,7 +487,9 @@ def answer(summary: StatusSummary) -> str:
         return f"Recording is impacted. {names} {verb} offline."
 
     frigate = summary.component("frigate")
-    if frigate is not None and (not frigate.observed or frigate.state == health.UNHEALTHY):
+    if frigate is not None and (
+        not frigate.observed or frigate.state == health.UNHEALTHY
+    ):
         return "Recording cannot be verified. Frigate did not answer."
 
     if summary.disk_state == health.UNHEALTHY and summary.disk is not None:
@@ -485,11 +510,18 @@ def answer(summary: StatusSummary) -> str:
             else f"Recording is working. Cloud backup stalled {_human_age(stale)} ago."
         )
 
+    if summary.cameras_quiet:
+        names = ", ".join(c.name for c in summary.cameras_quiet)
+        verb = "has" if len(summary.cameras_quiet) == 1 else "have"
+        return f"Recording is working, but {names} {verb} produced no clips recently."
+
     worker = summary.component("clip-worker")
     if worker is not None and worker.state in {health.UNHEALTHY, health.UNKNOWN}:
         return "Cameras are recording, but clips are not being created."
 
-    if any(c.name == "cleanup" and c.state == health.UNKNOWN for c in summary.components):
+    if any(
+        c.name == "cleanup" and c.state == health.UNKNOWN for c in summary.components
+    ):
         return "Recording and backup are working. Retention has not run recently."
 
     return "Recording, clip creation, and cloud backup are all working."
@@ -581,7 +613,9 @@ def storage_projection(
 
     first = samples[0]
     last = samples[-1]
-    grown = (last.clips_bytes + last.media_bytes) - (first.clips_bytes + first.media_bytes)
+    grown = (last.clips_bytes + last.media_bytes) - (
+        first.clips_bytes + first.media_bytes
+    )
     per_day = grown / span_days
     if per_day <= 0:
         return StorageProjection(None, per_day, "footage is not growing")
@@ -647,10 +681,15 @@ def camera_status(
             detection_fps=detection_fps,
         )
 
-    if last_clip_at is not None and len(clip_times) >= settings.camera_quiet_min_events_7d:
+    if (
+        last_clip_at is not None
+        and len(clip_times) >= settings.camera_quiet_min_events_7d
+    ):
         gap = _median_gap(clip_times) or settings.camera_quiet_min_gap_s
         expected = max(gap, settings.camera_quiet_min_gap_s)
-        if now - last_clip_at > max(settings.camera_quiet_multiplier * expected, 86400.0):
+        if now - last_clip_at > max(
+            settings.camera_quiet_multiplier * expected, 86400.0
+        ):
             return CameraStatus(
                 name=name,
                 state=QUIET,
@@ -660,6 +699,35 @@ def camera_status(
 
     return CameraStatus(
         name=name, state=ONLINE, last_clip_at=last_clip_at, detection_fps=detection_fps
+    )
+
+
+def _clip_worker_component(cameras: tuple[CameraStatus, ...]) -> ComponentStatus:
+    """Clip production, judged from the database rather than from an endpoint it lacks.
+
+    A fresh install with no clips is healthy: there is nothing to judge, and the documented
+    silent-camera rule exempts cameras without history. Once a camera *has* produced clips,
+    "every camera with history has gone QUIET" is what a broken clip-worker looks like from
+    outside — and it is also what a stopped camera looks like, which the camera's own state
+    already reports.
+    """
+    with_history = [camera for camera in cameras if camera.last_clip_at is not None]
+    if not with_history:
+        return ComponentStatus(
+            name="clip-worker", state=health.HEALTHY, summary="no clips yet"
+        )
+    if all(camera.state == QUIET for camera in with_history):
+        return ComponentStatus(
+            name="clip-worker",
+            state=health.DEGRADED,
+            code="CAMERA_QUIET",
+            summary="no clips are being produced",
+        )
+    producing = sum(1 for camera in with_history if camera.state == ONLINE)
+    return ComponentStatus(
+        name="clip-worker",
+        state=health.HEALTHY,
+        summary=f"{producing} camera(s) producing clips",
     )
 
 
@@ -726,7 +794,9 @@ class Collector:
 
     # -- components ---------------------------------------------------------------------
 
-    def _components(self, *, frigate: Mapping[str, Any] | None) -> tuple[ComponentStatus, ...]:
+    def _components(
+        self, *, frigate: Mapping[str, Any] | None
+    ) -> tuple[ComponentStatus, ...]:
         out: list[ComponentStatus] = []
         for name in COMPONENT_NAMES:
             url = self.settings.component_urls.get(name)
@@ -786,7 +856,9 @@ class Collector:
             summary = f"version {version} (expected {__version__})" + (
                 f"; {summary}" if summary else ""
             )
-        return ComponentStatus(name=name, state=state, summary=summary, version=version, code=code)
+        return ComponentStatus(
+            name=name, state=state, summary=summary, version=version, code=code
+        )
 
     def _frigate_component(self, frigate: Mapping[str, Any] | None) -> ComponentStatus:
         if frigate is None:
@@ -822,7 +894,9 @@ class Collector:
             state=health.HEALTHY if reachable else health.UNHEALTHY,
             code=None if reachable else "MQTT_DISCONNECTED",
             summary=(
-                "connected" if reachable else f"cannot reach {host}:{self.settings.mosquitto_port}"
+                "connected"
+                if reachable
+                else f"cannot reach {host}:{self.settings.mosquitto_port}"
             ),
         )
 
@@ -927,6 +1001,7 @@ class Collector:
             for name in sorted(self.config.enabled_cameras())
         )
         self._track_offline(cameras, now=now, stats=frigate)
+        components.append(_clip_worker_component(cameras))
 
         return StatusSummary(
             site=self.config.site.location,
@@ -1112,7 +1187,9 @@ def render_html(summary: StatusSummary, *, settings: StatusSettings) -> str:
     unobserved = ""
     if summary.unobserved:
         unobserved = (
-            '<p class="unobserved">Not observed: ' + esc(", ".join(summary.unobserved)) + "</p>"
+            '<p class="unobserved">Not observed: '
+            + esc(", ".join(summary.unobserved))
+            + "</p>"
         )
 
     return f"""<!doctype html>

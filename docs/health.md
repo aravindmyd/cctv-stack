@@ -111,6 +111,11 @@ Uploader:
 | `storage_credentials` | B2 rejects or accepts the application key |
 | `failed_permanent` | Clips that exhausted their retries |
 | `upload_verification` | Whether uploads were verified by checksum, by size, or not at all |
+
+Only an upload with no provider confirmation at all (`verified_by="none"`) is reported as
+`DEGRADED`. Above the multipart threshold the provider returns a composite digest, so the
+uploader compares size plus the local SHA-256 instead; that is the documented, expected
+result and it keeps the component healthy.
 | `backlog_age` | Age of the oldest pending clip |
 | `upload_staleness` | Time since the last successful upload |
 

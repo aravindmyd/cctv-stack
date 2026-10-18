@@ -62,7 +62,9 @@ class FakeAdapter:
         self.metadata: dict[str, dict[str, str]] = {}
         self.error = error
         self.verified_by = verified_by
-        self._health = health or storage.AdapterHealth(True, True, True, "ok", latency_ms=1)
+        self._health = health or storage.AdapterHealth(
+            True, True, True, "ok", latency_ms=1
+        )
         self._lock = threading.Lock()
 
     def put_object(
@@ -80,7 +82,9 @@ class FakeAdapter:
                         verified_by="sha256",
                         already_present=True,
                     )
-                raise storage.ObjectConflictError(f"{key} already exists with other content")
+                raise storage.ObjectConflictError(
+                    f"{key} already exists with other content"
+                )
             self.objects[key] = {"sha256": checksum_sha256, "body": body}
             self.puts.append(key)
             self.metadata[key] = dict(metadata)
@@ -239,7 +243,9 @@ def attempts(env: Any, clip_id: int) -> list[sqlite3.Row]:
 
 
 def events(env: Any, code: str) -> list[sqlite3.Row]:
-    return env.conn.execute("SELECT * FROM system_events WHERE code = ?", (code,)).fetchall()
+    return env.conn.execute(
+        "SELECT * FROM system_events WHERE code = ?", (code,)
+    ).fetchall()
 
 
 # ---------------------------------------------------------------------------------------
@@ -306,7 +312,9 @@ def test_backoff_grows_and_is_capped() -> None:
 def test_backoff_never_exceeds_the_ceiling_on_average() -> None:
     rng = random.Random(11)
     for _ in range(200):
-        assert uploader.backoff_delay(30, base_s=15.0, max_s=3600.0, rng=rng) <= 3600 * 1.2
+        assert (
+            uploader.backoff_delay(30, base_s=15.0, max_s=3600.0, rng=rng) <= 3600 * 1.2
+        )
 
 
 def test_backoff_requires_a_one_based_attempt() -> None:
@@ -317,7 +325,9 @@ def test_backoff_requires_a_one_based_attempt() -> None:
 def test_backoff_is_jittered_across_calls() -> None:
     """Without jitter, 200 affected clips retry in lock-step against a struggling endpoint."""
     rng = random.Random(3)
-    values = {uploader.backoff_delay(5, base_s=15.0, max_s=3600.0, rng=rng) for _ in range(50)}
+    values = {
+        uploader.backoff_delay(5, base_s=15.0, max_s=3600.0, rng=rng) for _ in range(50)
+    }
     assert len(values) > 40
 
 
@@ -545,7 +555,9 @@ def test_a_missing_local_file_is_a_critical_consistency_finding(env: Any) -> Non
     audit = events(env, "UPLOAD_LOCAL_FILE_MISSING")
     assert len(audit) == 1
     assert audit[0]["severity"] == "critical"
-    assert not target.exists(), "nothing was (re)created to paper over the inconsistency"
+    assert (
+        not target.exists()
+    ), "nothing was (re)created to paper over the inconsistency"
 
 
 def test_an_unexpected_error_is_retried_conservatively(env: Any) -> None:
@@ -569,7 +581,9 @@ def test_the_oldest_clip_is_claimed_first(env: Any) -> None:
     newer, _ = add_clip(
         env, review_id="newer", start=NOW + 3600, relpath="clips/front-door/newer.mp4"
     )
-    older, _ = add_clip(env, review_id="older", start=NOW, relpath="clips/front-door/older.mp4")
+    older, _ = add_clip(
+        env, review_id="older", start=NOW, relpath="clips/front-door/older.mp4"
+    )
     # Insertion order is deliberately the reverse of event order.
     assert claim(env) is not None
     assert state_of(env, older) == "UPLOADED"
@@ -660,7 +674,9 @@ def test_many_workers_upload_every_clip_exactly_once(env: Any) -> None:
     stop.set()
 
     assert len(set(env.adapter.puts)) == total, "every clip uploaded"
-    assert sorted(env.adapter.puts) == sorted(set(env.adapter.puts)), "nothing uploaded twice"
+    assert sorted(env.adapter.puts) == sorted(
+        set(env.adapter.puts)
+    ), "nothing uploaded twice"
     assert len(env.adapter.objects) == total
     uploaded = env.conn.execute(
         "SELECT COUNT(*) AS n FROM clips WHERE upload_state = 'UPLOADED'"
@@ -673,7 +689,9 @@ def test_many_workers_upload_every_clip_exactly_once(env: Any) -> None:
 # ---------------------------------------------------------------------------------------
 
 
-def reporter(env: Any, *, adapter: Any | None = None, settings: Any | None = None) -> Any:
+def reporter(
+    env: Any, *, adapter: Any | None = None, settings: Any | None = None
+) -> Any:
     return uploader.UploaderHealth(
         db_path=(settings or env.settings).db_path,
         data_dir=env.data_dir,
@@ -686,7 +704,9 @@ def reporter(env: Any, *, adapter: Any | None = None, settings: Any | None = Non
 
 
 def test_health_is_disabled_when_no_bucket_is_configured(env: Any) -> None:
-    settings = make_settings(data_dir=env.data_dir, db_path=env.settings.db_path, bucket=None)
+    settings = make_settings(
+        data_dir=env.data_dir, db_path=env.settings.db_path, bucket=None
+    )
     report = reporter(env, adapter=None, settings=settings).report()
     assert report.state == health.DISABLED
     assert all(check.state == health.DISABLED for check in report.checks)
@@ -758,6 +778,25 @@ def test_an_unverified_upload_degrades_health(env: Any) -> None:
     assert any(check.code == "UPLOAD_UNVERIFIED" for check in report.checks)
 
 
+def test_a_size_verified_multipart_upload_is_healthy_not_degraded(env: Any) -> None:
+    """#2: multipart uploads are verified by size plus our own sha256, by design.
+
+    `cloud-object-layout` §4.2 documents `verified_by="size"` as the expected outcome above
+    the multipart threshold. Degrading on it made every healthy B2 site permanently DEGRADED
+    and, through `?strict=1`, permanently 503.
+    """
+    env.adapter.verified_by = "size"
+    add_clip(env)
+    claim(env)
+
+    report = reporter(env).report()
+    verification = next(c for c in report.checks if c.name == "upload_verification")
+
+    assert report.state == health.HEALTHY
+    assert verification.state == health.HEALTHY
+    assert "size" in (verification.detail or "")
+
+
 def test_bad_credentials_are_named_in_health(env: Any) -> None:
     env.adapter._health = storage.AdapterHealth(
         reachable=True,
@@ -772,7 +811,9 @@ def test_bad_credentials_are_named_in_health(env: Any) -> None:
 
 
 def test_health_reports_unavailable_rather_than_raising(env: Any) -> None:
-    settings = make_settings(data_dir=env.data_dir, db_path=env.data_dir / "does-not-exist.db")
+    settings = make_settings(
+        data_dir=env.data_dir, db_path=env.data_dir / "does-not-exist.db"
+    )
     report = reporter(env, settings=settings).report()
     assert report.state == health.UNHEALTHY
     assert any(check.code == "DB_UNAVAILABLE" for check in report.checks)
@@ -886,9 +927,9 @@ def test_policy_pass_does_nothing_when_every_camera_uploads(env: Any) -> None:
     )
     assert service.policy_pass() == 0
     assert (
-        env.conn.execute("SELECT COUNT(*) AS n FROM clips WHERE upload_state='PENDING'").fetchone()[
-            "n"
-        ]
+        env.conn.execute(
+            "SELECT COUNT(*) AS n FROM clips WHERE upload_state='PENDING'"
+        ).fetchone()["n"]
         == 1
     )
 

@@ -58,6 +58,8 @@ src/cctv/                 shared library and five services
   status.py               status derivation: answer, overall state, projection, HTML
   status_service.py       cctv-status
   monitoring.py           monitoring adapter: Gatus config, monitor inventory, heartbeats
+  host.py                 host detection, support matrix, shm sizing
+  host_cli.py             cctv-host
   config_cli.py           cctv-config
   materialise.py          review → canonical clip
   db.py                   SQLite state machine and migrations

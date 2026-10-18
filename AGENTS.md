@@ -10,14 +10,15 @@ Read this file first, then [`internal/index.md`](internal/index.md) — the inte
 | | |
 |---|---|
 | **Phase** | **BUILDING — v0.3** |
-| **Implemented** | Detect → materialise at the canonical clip path → **upload to Backblaze B2, exactly once** → installable. M3 is certified against a live S3-compatible server. M4's **J1 local retention** runs as the `cleanup` service. M5 is built: the `status` service serves `/status` (JSON and HTML), `/health` and `/metrics` on 8084, generates Gatus's config and pushes heartbeats to it; Gatus and ntfy run in the default stack. Lint clean; 794 tests green, 18 skipped (they need a live S3 endpoint or the Docker daemon). |
-| **Not implemented** | M4's cloud retention (J2), reconciliation (J3) and housekeeping (J4); `force-delete` and the single-instance lock, both **deliberately deferred** by [`internal/adr/0021`](internal/adr/0021-defer-force-delete-and-advisory-lock.md); M5's live end-to-end alert run (M5.13, manual) and the `KumaAdapter` fallback; backup, upgrade (M7). One thing is deleted today — a clip whose upload is terminal-success and that is past `retention.local_days` — see [`.private/plans/backlog.md`](.private/plans/backlog.md) for exactly what is deferred and why. |
+| **Implemented** | Detect → materialise at the canonical clip path → **upload to Backblaze B2, exactly once** → installable. M3 is certified against a live S3-compatible server. M4's **J1 local retention** runs as the `cleanup` service. M5 is built: the `status` service serves `/status` (JSON and HTML), `/health` and `/metrics` on 8084, generates Gatus's config and pushes heartbeats to it; Gatus and ntfy run in the default stack. M6 has started: `cctv-host` detects the host against the support matrix and computes `FRIGATE_SHM_SIZE`, and `install.sh` runs it before anything starts. Lint clean; 811 tests green, 18 skipped (they need a live S3 endpoint or the Docker daemon). |
+| **Not implemented** | M4's cloud retention (J2), reconciliation (J3) and housekeeping (J4); `force-delete` and the single-instance lock, both **deliberately deferred** by [`internal/adr/0021`](internal/adr/0021-defer-force-delete-and-advisory-lock.md); M5's live end-to-end alert run (M5.13, manual) and the `KumaAdapter` fallback; the rest of M6 — the interview, B2 provisioning, `doctor.sh`, `uninstall.sh`, signed bundles; backup, upgrade (M7). One thing is deleted today — a clip whose upload is terminal-success and that is past `retention.local_days` — see [`.private/plans/backlog.md`](.private/plans/backlog.md) for exactly what is deferred and why. |
 | **Authority** | Design docs in `internal/` are the source of truth. Code follows docs, not the other way round. `docs/` is the published user site and is not authoritative. |
 
-> **Where things stand.** `src/cctv/` is the shared library plus five entry points:
+> **Where things stand.** `src/cctv/` is the shared library plus six entry points:
 > `cctv-clip-worker` (reviews → clips), `cctv-config` (`cameras.yml` → Frigate's config),
 > `cctv-uploader` (clips → B2, with a persisted retry state machine), `cctv-cleanup` (local
-> retention) and `cctv-status` (the aggregate answer to "is my CCTV working?").
+> retention), `cctv-status` (the aggregate answer to "is my CCTV working?") and `cctv-host`
+> (which machine is this, and how much shared memory does Frigate need).
 > `dev-synthetic/` is the camera-free harness and is **kept** — it is how the pipeline gets
 > exercised without a camera, and how it will run in CI. `spike/` is a throwaway measurement
 > harness and still goes once M1's exit criteria are met.

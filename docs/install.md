@@ -91,6 +91,16 @@ A valid file prints `ok: 1 camera(s) enabled: front-door`. An invalid one prints
 reason and exits 78 (`EX_CONFIG`). Fix it before going further; a bad camera URL that
 reaches Frigate produces a camera that looks configured and never connects.
 
+To see what the stack thinks this machine is — architecture, accelerator, and the
+`shm_size` it would use — run the same detection the installer runs:
+
+```bash
+docker compose run --rm --no-deps config cctv-host
+```
+
+It exits 78 on a host the support matrix does not cover, rather than starting a stack that
+will not work.
+
 ### 4. Start
 
 ```bash

@@ -7,7 +7,7 @@ package, read [`README.md`](README.md) first.
 
 ## Project status
 
-**Current release: `0.3.0`.** This is the state the code is actually in, not the target
+**Current release: `0.3.1`.** This is the state the code is actually in, not the target
 design.
 
 | Capability | State |

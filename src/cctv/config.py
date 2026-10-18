@@ -156,8 +156,8 @@ class FrigateAuthConfig:
     default because a fresh install has no stored password yet — Frigate generates one on
     the first start with auth enabled and prints it to the log — and because the generated
     config is only reachable through the loopback-bound authenticated port anyway. Turning
-    it on is a one-line change; [`docs/runbooks/frigate-authentication.md`](../../../docs/runbooks/frigate-authentication.md)
-    is the procedure.
+    it on is a one-line change; see the runbook `frigate-authentication.md` for the
+    procedure.
     """
 
     enabled: bool = False
@@ -182,9 +182,7 @@ class CamerasConfig:
 # ---------------------------------------------------------------------------------------
 
 _ENV_RE = re.compile(r"\$\{(?P<name>[A-Za-z_][A-Za-z0-9_]*)\}")
-_TOP_LEVEL_KEYS = frozenset(
-    {"site", "frigate", "defaults", "cameras", "min_headroom_days"}
-)
+_TOP_LEVEL_KEYS = frozenset({"site", "frigate", "defaults", "cameras", "min_headroom_days"})
 _CAMERA_KEYS = frozenset(
     {
         "display_name",

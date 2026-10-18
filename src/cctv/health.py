@@ -19,6 +19,7 @@ Endpoints, per
 ```text
 GET  /health          JSON report;  ?strict=1 makes DEGRADED/UNKNOWN return 503
 GET  /metrics         Prometheus text exposition
+GET  /status          aggregate status (status-collector only): JSON, or HTML to a browser
 GET  /admin/queue     backlog summary (requires INTERNAL_API_TOKEN)
 POST /admin/retry     requeue failed clips (requires INTERNAL_API_TOKEN and a reason)
 ```
@@ -76,11 +77,13 @@ CODES = frozenset(
     {
         "BACKLOG_AGING",
         "CAMERA_OFFLINE",
+        "CAMERA_QUIET",
         "CLEANUP_STALE",
         "CLIPS_OVERDUE_RETENTION",
         "CLIP_COVERAGE_LOW",
         "CLIP_FLUSH_PRESSURE",
         "CLIP_HAS_GAPS",
+        "COLLECTOR_STALE",
         "DB_INTEGRITY_FAILED",
         "DB_UNAVAILABLE",
         "DETECTION_FALLING_BEHIND",
@@ -304,6 +307,9 @@ class _Handler(BaseHTTPRequestHandler):
         if path.path == "/metrics":
             self._metrics()
             return
+        if path.path == "/status":
+            self._status()
+            return
         if path.path == "/admin/queue":
             self._admin_queue()
             return
@@ -325,6 +331,24 @@ class _Handler(BaseHTTPRequestHandler):
         report = self._config.snapshot()
         gauges = self._config.gauges() if self._config.gauges else None
         self._write(200, render_metrics(report, gauges=gauges).encode("utf-8"), "text/plain")
+
+    def _status(self) -> None:
+        """Aggregate status: HTML for a browser, JSON for everything else.
+
+        Negotiated on `Accept` rather than a separate path, so a monitor and a human can be
+        given the same URL and neither has to know the other exists. A service that did not
+        mount the route (every service but `status-collector`) answers 404 rather than an
+        empty page, which is the honest thing to say.
+        """
+        if self._config.status is None:
+            self._json(HTTPStatus.NOT_FOUND, {"error": "no aggregate status on this service"})
+            return
+        wants_html = "text/html" in (self.headers.get("Accept") or "")
+        if wants_html and self._config.status_html is not None:
+            body = self._config.status_html().encode("utf-8")
+            self._write(200, body, "text/html; charset=utf-8")
+            return
+        self._json(200, dict(self._config.status()))
 
     def _admin_guard(self) -> bool:
         if self._config.admin is None or not self._config.token:
@@ -385,12 +409,16 @@ class HealthServer(ThreadingHTTPServer):
         admin: AdminRoutes | None = None,
         token: str | None = None,
         gauges: Callable[[], Mapping[str, float | int]] | None = None,
+        status: Callable[[], Mapping[str, Any]] | None = None,
+        status_html: Callable[[], str] | None = None,
     ) -> None:
         super().__init__(address, _Handler)
         self.snapshot = snapshot
         self.admin = admin
         self.token = token
         self.gauges = gauges
+        self.status = status
+        self.status_html = status_html
 
 
 def start_health_server(
@@ -401,13 +429,23 @@ def start_health_server(
     admin: AdminRoutes | None = None,
     token: str | None = None,
     gauges: Callable[[], Mapping[str, float | int]] | None = None,
+    status: Callable[[], Mapping[str, Any]] | None = None,
+    status_html: Callable[[], str] | None = None,
 ) -> tuple[HealthServer, threading.Thread]:
     """Start serving in a background thread. Returns the server and its thread.
 
     Port `0` means "disabled" — a deployment that does not want the surface pays nothing for
     it, and the caller logs that choice rather than leaving it implicit.
     """
-    server = HealthServer((host, port), snapshot=snapshot, admin=admin, token=token, gauges=gauges)
+    server = HealthServer(
+        (host, port),
+        snapshot=snapshot,
+        admin=admin,
+        token=token,
+        gauges=gauges,
+        status=status,
+        status_html=status_html,
+    )
     thread = threading.Thread(target=server.serve_forever, name="health", daemon=True)
     thread.start()
     return server, thread

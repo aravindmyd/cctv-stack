@@ -4,19 +4,43 @@ The uploader and cleanup services each serve a JSON health report and Prometheus
 a loopback port. Frigate has its own status interface; the clip worker has neither, because
 it has no state of its own beyond the database.
 
+A fourth service, `status`, aggregates everything into one answer to *is my CCTV working?*.
+
 | Service | Address | Report |
 |---|---|---|
+| `status` | `http://<host>:8084/status` | The aggregate page: cameras, storage, backup, retention |
+| `status` | `http://<host>:8084/health` | The collector's own report |
+| `status` | `http://<host>:8084/metrics` | Prometheus text format |
 | `uploader` | `http://127.0.0.1:8082/health` | Queue, B2 reachability, credential validity, backlog age |
 | `uploader` | `http://127.0.0.1:8082/metrics` | Prometheus text format |
 | `cleanup` | `http://127.0.0.1:8083/health` | Last retention run, held clips, disk free |
 | `cleanup` | `http://127.0.0.1:8083/metrics` | Prometheus text format |
 
-Both ports are published on `127.0.0.1` only. To reach them from another machine, use an
-SSH tunnel rather than binding to `0.0.0.0`.
+`8082` and `8083` are published on `127.0.0.1` only: use an SSH tunnel to reach them from
+another machine. `8084` is published to the LAN on purpose — it is the page you open from a
+phone to answer the question, it shows camera names and states, and it has no admin route
+and no credentials. Set `STATUS_PORT` to change the port, or remove the `ports:` entry from
+the `status` service to keep it loopback-only.
 
 ```bash
 curl -s http://127.0.0.1:8082/health | jq .
+curl -s http://127.0.0.1:8084/status  | jq '.overall, .answer'
 ```
+
+## The aggregate status page
+
+Open `http://<host>:8084/status` in a browser. The first line is generated from state, not
+templated — "Recording is working. Cloud backup stalled 42 min ago." — and the details
+below it come from the same object the JSON is rendered from, so the page and the API
+cannot disagree.
+
+It is read-only by design: no buttons, no forms, no JavaScript, so it keeps working when
+the rest of the stack is having a bad day. It reports what it could not observe instead of
+guessing: with Frigate down, the cameras read `UNKNOWN` and the headline says recording
+cannot be verified.
+
+A camera that is reachable but has stopped producing clips is called out as `QUIET` rather
+than looking fine — that is the failure mode a simple camera-online check misses.
 
 ## Reading a report
 

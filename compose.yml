@@ -1,9 +1,10 @@
 # The deployment boundary (AGENTS.md §3).
 #
-# Six services: a broker, a config generator, Frigate, the clip-worker, the uploader, and
-# cleanup. The generator is a *service* rather than a step in `install.sh` so that installing
-# never needs Python on the host — the image that generates the config is the same image that
-# runs from it, so the two cannot disagree about what a valid config is.
+# Seven services: a broker, a config generator, Frigate, the clip-worker, the uploader,
+# cleanup, and the read-only status collector. The generator is a *service* rather than a step
+# in `install.sh` so that installing never needs Python on the host — the image that generates
+# the config is the same image that runs from it, so the two cannot disagree about what a
+# valid config is.
 #
 # Deliberate omissions, recorded so they read as decisions rather than oversights:
 #
@@ -135,6 +136,30 @@ services:
   # mount flag but the enumerated-state query and four further guards in `src/cctv/cleanup.py`,
   # each of which has a test. A read-only mount here would make the service useless while
   # looking safer.
+  # Aggregate status: the one screen that answers "is my CCTV working?" (M5, lld/06). It is a
+  # reader, not a writer of clips, so its footage mounts are read-only; the database is
+  # writable because the storage projection keeps a small history of disk sizes.
+  #
+  # Published to the LAN on purpose, unlike the other health surfaces: it exposes camera names
+  # and states, never credentials, and it mounts no admin route.
+  status:
+    <<: *cctv-image
+    command: ["cctv-status"]
+    restart: on-failure:5
+    env_file: [.env]
+    environment:
+      CCTV_CONFIG_DIR: /config
+      CCTV_DATA_DIR: /data
+      CCTV_DB: /data/cctv.db
+      CCTV_STATUS_HEALTH_PORT: "8084"
+    ports:
+      - "${STATUS_PORT:-8084}:8084"
+    volumes:
+      - ./config:/config:ro
+      - ${CCTV_DATA_DIR:-./data}:/data
+      - ${CCTV_DATA_DIR:-./data}/clips:/data/clips:ro
+      - ${CCTV_DATA_DIR:-./data}/media:/data/media:ro
+
   cleanup:
     <<: *cctv-image
     command: ["cctv-cleanup"]

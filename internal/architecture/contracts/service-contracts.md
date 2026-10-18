@@ -135,6 +135,8 @@ is a breaking change requiring a migration note.
 | `CLIP_FLUSH_PRESSURE` | Mean `fetch_attempts` above tolerance: the flush grace period is too short for this host |
 | `CLEANUP_STALE` | Cleanup has not completed a run within its interval |
 | `CAMERA_OFFLINE` | A camera's role status is `offline` beyond the grace period |
+| `CAMERA_QUIET` | A camera is online but has stopped producing clips, compared with its own recent history |
+| `COLLECTOR_STALE` | The status collector has not completed a collection within its own cadence |
 | `DETECTION_FALLING_BEHIND` | Frigate's inference speed exceeds the detection interval |
 
 ### 1.7 Staleness windows
@@ -160,6 +162,15 @@ last claim.
 ## 2. Aggregate status endpoint
 
 Served by `status-collector` only, at `GET /status`.
+
+> **Implementation note (v0.5.0, slice 1).** The collector, the JSON payload, the HTML page
+> and `/metrics` are built and tested. It is published on `0.0.0.0:8084` on purpose — the page
+> is meant to be opened from a phone on the LAN, it exposes camera names and states but no
+> credentials, and it mounts no admin route. **Not built:** the `MonitoringAdapter`, the
+> generated Gatus/Kuma configuration, push heartbeats, and alert delivery (§6 of
+> [`lld/06`](../lld/06-health-and-monitoring.md)). `components[].observed` is an addition to
+> the example below: `false` means the collector could not reach that source, which is how
+> partial observation is stated rather than hidden.
 
 ### 2.1 JSON
 

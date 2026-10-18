@@ -1476,3 +1476,109 @@ def overdue_local(conn: sqlite3.Connection, *, camera: str, cutoff: Instant) -> 
             None if row["oldest"] is None else max(0.0, cutoff - float(row["oldest"]))
         ),
     )
+
+
+# ---------------------------------------------------------------------------------------
+# Status-collector reads. All read-only, all bounded, none of them a table scan on every
+# scrape: the collector polls these on its own cadence, and a status page that is expensive
+# to render is a status page that hides problems behind its own latency.
+# ---------------------------------------------------------------------------------------
+
+
+def last_clip_per_camera(conn: sqlite3.Connection) -> dict[str, Instant]:
+    """The most recent clip start time for each camera that has ever produced one.
+
+    A camera absent from this mapping has never produced a clip. That is different from a
+    camera whose last clip is old, and the status page must not conflate them: a camera added
+    ten minutes ago is not "quiet since 1970".
+    """
+    return {
+        str(row["camera"]): float(row["last"])
+        for row in conn.execute("SELECT camera, MAX(start_time) AS last FROM clips GROUP BY camera")
+    }
+
+
+def clip_start_times_since(
+    conn: sqlite3.Connection, *, since: Instant, limit_per_camera: int = 500
+) -> dict[str, list[Instant]]:
+    """Clip start times per camera since `since`, newest first.
+
+    The silent-camera check (lld/06 §3.4) needs the *typical* gap between clips, which is a
+    median over history rather than a count. One clip per minute for a busy doorbell would
+    make an unbounded query grow with footage; `limit_per_camera` keeps the query's cost flat
+    while leaving far more samples than a median needs.
+    """
+    out: dict[str, list[Instant]] = {}
+    for row in conn.execute(
+        "SELECT camera, start_time FROM ("
+        "  SELECT camera, start_time,"
+        "         ROW_NUMBER() OVER (PARTITION BY camera ORDER BY start_time DESC) AS n"
+        "    FROM clips WHERE start_time >= ?"
+        ") WHERE n <= ? ORDER BY camera, start_time DESC",
+        (since, limit_per_camera),
+    ):
+        out.setdefault(str(row["camera"]), []).append(float(row["start_time"]))
+    return out
+
+
+@dataclass(frozen=True, slots=True)
+class DiskSample:
+    at: Instant
+    free_bytes: int
+    clips_bytes: int
+    media_bytes: int
+
+
+def record_disk_sample(
+    conn: sqlite3.Connection,
+    *,
+    at: Instant,
+    free_bytes: int,
+    clips_bytes: int,
+    media_bytes: int,
+) -> None:
+    """Upsert one sample. Keyed on `at`, so a retried collection cannot duplicate history."""
+    with write_txn(conn):
+        conn.execute(
+            "INSERT OR REPLACE INTO disk_samples (at, free_bytes, clips_bytes, media_bytes) "
+            "VALUES (?, ?, ?, ?)",
+            (at, free_bytes, clips_bytes, media_bytes),
+        )
+
+
+def disk_samples_since(conn: sqlite3.Connection, *, since: Instant) -> list[DiskSample]:
+    """Samples from `since` onwards, oldest first. The storage projection's only input."""
+    return [
+        DiskSample(
+            at=float(row["at"]),
+            free_bytes=int(row["free_bytes"]),
+            clips_bytes=int(row["clips_bytes"]),
+            media_bytes=int(row["media_bytes"]),
+        )
+        for row in conn.execute(
+            "SELECT at, free_bytes, clips_bytes, media_bytes FROM disk_samples "
+            "WHERE at >= ? ORDER BY at",
+            (since,),
+        )
+    ]
+
+
+def prune_disk_samples(conn: sqlite3.Connection, *, before: Instant) -> int:
+    """Delete samples older than `before`. Returns how many rows went."""
+    with write_txn(conn):
+        cur = conn.execute("DELETE FROM disk_samples WHERE at < ?", (before,))
+    return int(cur.rowcount or 0)
+
+
+def last_cleanup_run_at(conn: sqlite3.Connection) -> Instant | None:
+    """When retention last completed a pass, from the row `cctv-cleanup` writes.
+
+    Read here rather than derived from `clips`, because "retention is running" is a fact only
+    the cleanup service knows; a database with nothing to delete looks identical whether
+    cleanup is working or dead.
+    """
+    row = conn.execute(
+        "SELECT COALESCE(last_success_at, last_run_at) AS at FROM sweep_state "
+        "WHERE name = 'cleanup_local'"
+    ).fetchone()
+    return None if row is None or row["at"] is None else float(row["at"])

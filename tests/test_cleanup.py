@@ -802,6 +802,9 @@ def test_migration_0002_preserves_existing_findings(tmp_path: Path) -> None:
     v1_only = tmp_path / "migrations_v1"
     v1_only.mkdir()
     shutil.copy(db.MIGRATIONS_DIR / "0001_init.sql", v1_only / "0001_init.sql")
+    # Derived from disk rather than hard-coded: every migration added later would otherwise
+    # turn this test red for a reason that has nothing to do with what it checks.
+    newest = max(int(path.name.split("_", 1)[0]) for path in db.MIGRATIONS_DIR.glob("0*.sql"))
 
     conn = db.open_db(tmp_path / "state.db")
     try:
@@ -813,12 +816,12 @@ def test_migration_0002_preserves_existing_findings(tmp_path: Path) -> None:
                 (NOW,),
             )
 
-        assert db.migrate(conn, migrations_dir=db.MIGRATIONS_DIR) == 2
+        assert db.migrate(conn, migrations_dir=db.MIGRATIONS_DIR) == newest
 
         row = conn.execute("SELECT kind, subject FROM reconciliation_findings").fetchone()
         assert row["kind"] == "orphan_object"
         assert row["subject"] == "some/key"
-        assert db.schema_version(conn) == 2
+        assert db.schema_version(conn) == newest
         # The index the rebuild dropped must be back, or J3's finding lookup degrades to a scan.
         indexes = {
             item["name"]

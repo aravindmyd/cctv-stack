@@ -3,6 +3,15 @@
 **Implements:** [INV-6](../invariants.md)
 **Specified by:** [`contracts/service-contracts.md`](../contracts/service-contracts.md)
 
+> **Implementation status (2026-10-18).** Slice 1 is built: `src/cctv/status.py` (derivation,
+> the answer string, camera states, storage projection, camera/disk thresholds) and
+> `src/cctv/status_service.py` (`cctv-status`, schema `0003` for disk samples). §3, §4, §5 and
+> §7 are implemented; §2 is implemented as *polling* rather than MQTT subscription — camera
+> state is read from Frigate's `/api/stats`, the same signal its MQTT status is derived from,
+> so there is one source of truth and no second subscription to disagree with it. **Not built:**
+> §6 (the `MonitoringAdapter`, generated Gatus config, push heartbeats, notifications) and
+> therefore **M5.7–M5.10, M5.13**.
+
 Answering the PRD's question — *"is my CCTV system actually working?"* — and
 delivering the answer to a human, without building a UI.
 

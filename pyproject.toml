@@ -74,6 +74,7 @@ cctv-clip-worker = "cctv.worker:main"
 cctv-config = "cctv.config_cli:main"
 cctv-uploader = "cctv.uploader:main"
 cctv-cleanup = "cctv.cleanup:main"
+cctv-status = "cctv.status_service:main"
 
 [project.urls]
 Homepage = "https://github.com/aravindmyd/cctv-stack"

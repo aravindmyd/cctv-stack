@@ -227,7 +227,7 @@ Because they cannot succeed, and retrying them produces:
 - pointless API traffic against a provider that is already telling us no
 
 Fast-failing loudly is the correct behaviour. The runbook
-(`runbooks/rotate-credentials.md`) is the fix.
+(`docs/rotate-credentials.md`) is the fix.
 
 ### 4.2 Why `unknown` retries
 
@@ -272,7 +272,7 @@ a genuinely broken configuration surfaces the next morning rather than the next 
 
 **A `FAILED_PERMANENT` clip is not lost.** The local file is retained
 ([INV-1](../invariants.md)), an alert is raised, and
-[`runbooks/recover-failed-uploads.md`](../../runbooks/recover-failed-uploads.md) is the fix. The
+[`docs/recover-uploads.md`](../../../docs/recover-uploads.md) is the fix. The
 worst outcome of reaching that state is a growing local backlog and a clear alert.
 
 ---

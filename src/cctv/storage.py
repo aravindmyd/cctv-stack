@@ -96,7 +96,7 @@ class AuthStorageError(StorageError):
 
     Retrying a `403` produces thousands of failed requests that bury the real signal and
     make a broken system look busy. The fix is a credential rotation, and the runbook is
-    [`rotate-credentials.md`](../../../docs/runbooks/rotate-credentials.md).
+    [`rotate-credentials.md`](../../../docs/rotate-credentials.md).
     """
 
     error_class: ClassVar[str] = "auth"
@@ -329,7 +329,7 @@ def classify_client_error(exc: BaseException, *, key: str | None = None) -> Stor
     if code in _AUTH_CODES:
         return AuthStorageError(
             f"Storage rejected the credentials{where}: {message}. "
-            f"Rotate them (runbooks/rotate-credentials.md); retrying will not help.",
+            f"Rotate them (docs/rotate-credentials.md); retrying will not help.",
             http_status=status,
         )
     if code in _NOT_FOUND_CODES:
@@ -358,7 +358,7 @@ def classify_client_error(exc: BaseException, *, key: str | None = None) -> Stor
     if status in _AUTH_STATUSES:
         return AuthStorageError(
             f"Storage rejected the credentials{where}: {message}. "
-            f"Rotate them (runbooks/rotate-credentials.md); retrying will not help.",
+            f"Rotate them (docs/rotate-credentials.md); retrying will not help.",
             http_status=status,
         )
     if status in _NOT_FOUND_STATUSES:

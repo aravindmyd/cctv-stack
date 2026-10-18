@@ -87,7 +87,7 @@ be limited"*.
 |---|---|
 | Human access | `8971` is published on loopback only, HTTPS only. Frigate's own login is **opt-in**: `frigate.auth.enabled` in `cameras.yml` is projected to `auth.enabled`. Default `false` |
 | Installer | Does not create a service user at all. Simpler, and one fewer secret ([INV-2](../invariants.md)) |
-| Operator password | With the login enabled, Frigate generates the admin password on first start and prints it to the log; change it in **Settings → Users**. `auth.reset_admin_password: true` regenerates a forgotten one (a transient hand edit to the generated file; [`runbooks/frigate-authentication.md`](../../runbooks/frigate-authentication.md)) |
+| Operator password | With the login enabled, Frigate generates the admin password on first start and prints it to the log; change it in **Settings → Users**. `auth.reset_admin_password: true` regenerates a forgotten one (a transient hand edit to the generated file; [`docs/frigate-ui.md`](../../../docs/frigate-ui.md)) |
 | Auth posture | With the login **off**, the only thing protecting the UI is that it is bound to `127.0.0.1` and that `5000` is never published. With it **on**, `8971` requires a JWT. The internal port is exempt either way, so our services are unaffected |
 | Hardened deployments | `FRIGATE_API_BASE` is configurable, so an operator wanting defence in depth can point at an authenticated endpoint instead. One config value, no code change |
 | Failure mode | `401`/`403` from the internal port means the base URL is misconfigured, not that a token expired — a clearer signal |
@@ -98,7 +98,7 @@ be limited"*.
 > `cameras.yml` (`frigate.auth.enabled`) and can be enabled without hand-editing a
 > generated file. It stays **off by default**: turning it on changes first-start behaviour
 > everywhere, and the only place the generated password appears is Frigate's log. A site
-> that wants the login opts in; [`runbooks/frigate-authentication.md`](../../runbooks/frigate-authentication.md)
+> that wants the login opts in; [`docs/frigate-ui.md`](../../../docs/frigate-ui.md)
 > is the procedure.
 
 > **RESOLVED (M1).** Verified against Frigate `0.18.0-77a66e7`: `/config`, `/stats` and

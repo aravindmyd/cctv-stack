@@ -218,7 +218,7 @@ def test_the_camera_urls_are_opened_by_go2rtc_not_by_a_second_ffmpeg_reader(
 
     It must not cost extra connections: if the ffmpeg inputs also opened the camera, the
     camera would see four connections instead of two, which is the limit
-    `runbooks/install.md` warns about.
+    `docs/install.md` warns about.
     """
     out = build_frigate_config(make_config(tmp_path))
 
@@ -465,7 +465,7 @@ def test_the_header_warns_about_the_published_port(tmp_path: Path) -> None:
 
     assert "frigate.auth.enabled" in rendered
     assert "5000" in rendered
-    assert "frigate-authentication.md" in rendered
+    assert "frigate-ui.md" in rendered
 
 
 # --------------------------------------------------------------------------------------

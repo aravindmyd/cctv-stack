@@ -222,7 +222,7 @@ def test_invalid_location_is_refused(tmp_path: Path) -> None:
 
 
 def test_the_frigate_ui_login_is_off_by_default(tmp_path: Path) -> None:
-    """Off is the shipped default; `runbooks/frigate-authentication.md` is how it goes on."""
+    """Off is the shipped default; `docs/frigate-ui.md` is how it goes on."""
     assert load(tmp_path).frigate_auth.enabled is False
 
 

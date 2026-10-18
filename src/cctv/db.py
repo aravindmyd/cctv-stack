@@ -1226,7 +1226,7 @@ def reset_failed_permanent(
         raise DbError(
             "Refusing to requeue every FAILED_PERMANENT clip at once. Give a clip_id, a "
             "camera, or a since — or fix the cause and let the next attempt happen by "
-            "itself. See runbooks/recover-failed-uploads.md."
+            "itself. See docs/recover-uploads.md."
         )
 
     now = timeutil.now() if now is None else now

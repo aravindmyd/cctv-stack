@@ -1,96 +1,73 @@
 # Glossary
 
-Frigate's vocabulary is subtle, and most confusion traces back to words that look like
-synonyms but are not. These are the terms this stack uses in its configuration, its
-health output and its file names.
+Frigate uses words that look interchangeable and are not. These are the terms these pages
+use, and the ones the stack uses in its configuration, health output and file names.
 
----
-
-## Frigate concepts (upstream terms — do not redefine)
+## Frigate's terms
 
 | Term | Meaning |
 |---|---|
-| **Camera** | A named video source configured in Frigate. Has a main stream (recording) and an optional sub stream (detection). |
-| **Detector** | The hardware/software that runs object detection. `edgetpu`, `openvino`, `hailo8`, `onnx`, `cpu`, `rknn`, … |
-| **Detected object / tracked object** | A single tracked instance of a label (e.g. one `person`) within a camera over time. Each has an **event id**. |
-| **Event** | A completed or in-progress tracked object. Has `id`, `camera`, `label`, `start_time`, `end_time`, `zones`, `top_score`, and the flags `has_clip` / `has_snapshot` / `retain_indefinitely`. **No longer the unit we clip on** — see review item. |
-| **Review item / review segment** | Frigate's grouping of one or more events into a period of activity, classified as `alert` or `detection`. Has `id`, `camera`, `start_time`, `end_time` (`null` while still open), `severity`, `thumb_path`, and `data.detections[]` (the event ids inside it), `data.objects[]`, `data.sub_labels[]`, `data.zones[]`, `data.audio[]`. Frigate's own UI list is built from these. **Reviews for a single camera cannot overlap, and are contiguous** — when one closes, the next begins at exactly the previous one's `end_time`. |
-| **`cutoff_time`** | Frigate's **visit threshold**: the quiet period after which an open review is closed. `review.alerts.cutoff_time` (default **40 s**), `review.detections.cutoff_time` (default **30 s**). This is what decides whether a subject who leaves the frame and returns is **one clip or two**. |
-| **Recording** | Continuous video segments written by Frigate to `/media/frigate/recordings/YYYY-MM-DD/HH/<camera>/MM.SS.mp4`. Frigate builds that path from its own container `TZ`. |
-| **Snapshot** | A JPEG/WebP still captured at an event's best frame. Stored under `/media/frigate/clips/`. |
-| **Zone** | A named polygon within a camera frame, used for filtering and alerting. |
-| **Sub-label** | A recognisable identity on an event, e.g. a face name or a number plate. |
+| **Camera** | A named video source in Frigate. It has a main stream for recording and, usually, a lower-resolution sub stream for detection |
+| **Detector** | The hardware or software that runs object detection: a Coral, a GPU, or the CPU |
+| **Event** | One tracked object over time, for example a single person. It has an id, a camera, a label and a start and end time |
+| **Review** | Frigate's grouping of nearby events into one period of activity, classified as `alert` or `detection`. This is what becomes a clip |
+| **Cutoff time** | How long a subject may be absent before Frigate closes the review. Forty seconds for alerts and thirty for detections by default. This decides whether a person who leaves and returns produces one clip or two |
+| **Recording** | Continuous video segments Frigate writes to `data/media/recordings/YYYY-MM-DD/HH/<camera>/`. Frigate builds those paths from its container timezone |
+| **Snapshot** | A still image Frigate keeps for a detected object |
+| **Zone** | A named polygon inside the camera's view, used to filter detections |
 
-> ⚠️ **Frigate does not store event clips as MP4 files any more.**
-> `frigate/events/cleanup.py` contains `file_extension = None  # mp4 clips are no longer stored in /clips`.
-> An "event clip" is *cut on demand* from the recording segments by ffmpeg when you
-> call `GET /api/events/{event_id}/clip.mp4`.
-> This is the single most important fact in the whole design.
+Frigate does not keep a video file per event. It records continuously and cuts a clip on
+demand. Every design decision here follows from that.
 
----
+## This stack's terms
 
-## Project vocabulary (our terms — use these exactly)
+| Term | Meaning |
+|---|---|
+| **Clip** | The file this stack produces: `clips/<camera>/YYYY/MM/DD/HH-MM-SS.mp4`, independent of Frigate's own retention |
+| **Canonical path** | The deterministic location of a clip, derived from its camera and start time. The cloud object key mirrors it |
+| **Sidecar** | The `.mp4.json` file beside each clip, recording what was requested, what was measured, and the codecs |
+| **Materialise** | Turn a Frigate review into a clip file on disk |
+| **Visit** | A review in human terms: one period of activity. One visit is one clip, unless the subjects are separated by more than the cutoff time |
+| **Site** | One independent deployment at one physical location |
+| **Location** | The site's name, from `site.location`. It appears in cloud object keys |
+| **Pre-roll** | Footage included before the review starts, so the clip shows what led up to it. Five seconds by default |
+| **Post-roll** | Footage included after the review ends, so the clip does not cut off while the subject is still there. Ten seconds by default |
+| **Coverage ratio** | Clip duration divided by requested duration. Below 0.95 the clip is short; below 0.80 the attempt is rejected and retried |
+| **Degraded** | A clip or service that is working with a known limitation, reported rather than hidden |
+| **Upload state** | Where a clip sits in the backup pipeline. See below |
+| **Held clip** | A clip past its retention date that has not uploaded, and therefore is not deleted |
 
-| Term | Meaning | Not to be confused with |
-|---|---|---|
-| **Clip** | *Our* artefact: a self-contained MP4 in the canonical tree `clips/<camera>/YYYY/MM/DD/HH-MM-SS.mp4`, owned by us, independent of Frigate's retention. | Frigate's "clip", which is generated on demand and not a file |
-| **Canonical clip** | A clip that has been fully materialised, hashed, and recorded in the database. | An in-flight download |
-| **Recording** *(ours)* | We do **not** manage Frigate's recordings. When a doc says "recording", clarify whose. | Clip |
-| **Site** | One independent deployment of the stack, at one physical location. | Camera |
-| **Location** | The human-readable name of a site, from `LOCATION` in `.env`. | Site |
-| **Host profile** | The detected-and-confirmed capability set of the machine: architecture, GPU, accelerator, storage class. Drives which compose profile is enabled. | |
-| **Component** | One deployable unit of the stack: Frigate, clip-worker, uploader, cleanup, status-collector, Uptime Kuma. | Container (many components could be several containers) |
-| **Materialise** | The act of turning a Frigate **review item** into a canonical clip file on disk. | Upload |
-| **Visit** | A review item, in human terms: one period of activity by one or more subjects. **One visit is one clip**, unless the subjects are separated by more than `cutoff_time`. | Between-visit gap |
-| **Upload state** | The lifecycle position of a clip in the cloud pipeline: `PENDING` → `UPLOADING` → `UPLOADED` / `FAILED`. | Transfer state |
-| **Storage adapter** | The interface through which clips are written to and deleted from cloud storage. `b2` is the only implementation in v1. | |
-| **Pinned / retained** | An event we have asked Frigate to keep (`retain_indefinitely`) so its source footage survives until we have materialised our own copy. | Our retention policy |
-| **Force delete** | An operator action that allows cleanup to remove a clip whose upload never succeeded. Never automatic. | |
-| **Degraded** | A component that is running but cannot do its job (e.g. uploader running but B2 unreachable). Distinct from **unhealthy**. | |
-| **Pre-roll** | Footage included *before* `review.start_time`, so the clip shows what led up to the first detection. Default 5 s. | |
-| **Post-roll** | Footage included *after* `review.end_time`, so the clip does not cut off while the subject is still in frame. Default 10 s. | |
-| **Review padding** | Frigate's own `REVIEW_PADDING` of **±4 s**, applied symmetrically when its UI exports a review. **We do not use it** — our pre-roll and post-roll are asymmetric and operator-configured. | Pre-roll / post-roll |
-| **Segment flush** | Frigate writes new recording segments to cache and moves them to disk shortly afterwards. Until the flush happens, the footage is not available to a clip request. | |
-| **Flush grace** | The delay we wait after `review.end_time + post_roll_s` before fetching, so the final segment has reached disk. Default 5 s. | |
-| **Coverage ratio** | `actual_duration / requested_duration` for a materialised clip. Below 0.95 the clip is short; below 0.80 it is rejected and re-fetched. | |
-| **Gap** | A hole in a clip caused by a missing recording segment — a camera dropout, or a segment expired before we fetched. Recorded as `max_gap_s`; never repaired, because the footage is gone. | |
-| **Erring outward** | The rule that clip boundaries always over-run rather than under-run. Overshoot costs storage; undershoot loses evidence. | |
-
----
-
-## State vocabulary
-
-Health states are a small closed set. Do not invent new ones.
+## Upload states
 
 | State | Meaning |
 |---|---|
-| `HEALTHY` | Component is running and its dependencies are reachable and behaving. |
-| `DEGRADED` | Component is running but a non-fatal dependency is failing. It still serves health and reports why. |
-| `UNHEALTHY` | Component cannot do its job, or its critical dependency is unreachable. |
-| `UNKNOWN` | No recent observation. Reported when a component has not reported within its staleness window. Also the initial state of a camera before its first observation. |
-| `DISABLED` | Deliberately turned off by configuration. Not an error. |
+| `PENDING` | Waiting for an upload attempt |
+| `UPLOADING` | Claimed by the uploader and in flight |
+| `RETRY_WAIT` | Failed, waiting for its next attempt |
+| `UPLOADED` | Stored and verified |
+| `FAILED_PERMANENT` | Out of attempts. The local file is kept and reported |
+| `SKIPPED_BY_POLICY` | The camera has `retention.upload: false`, so there is nothing to upload |
+| `DELETED_LOCAL` | Uploaded, then removed from disk by retention |
+| `FORCE_DELETED` | Removed by an operator despite never uploading. No command creates this today |
 
-Camera states reuse Frigate's own: `ONLINE`, `OFFLINE`, `DISABLED`.
+## Health states
 
----
-
-## Naming and path rules
-
-| Rule | Rationale |
+| State | Meaning |
 |---|---|
-| Camera names are `lowercase-kebab-case`, `[a-z0-9-]+`, max 32 chars. | They appear in filesystem paths and cloud object keys across multiple OSes and filesystems. Uppercase causes case-collision bugs on macOS and breaks URL/object-key sanity. |
-| Timestamps in the database are **epoch seconds (float)** — an instant, which carries no timezone. | Frigate's API speaks epoch seconds. An instant is comparable regardless of zone; rendering the *same instant* in two different zones is the classic source of duplicate and missing clips. |
-| Clip **filenames** are rendered in the site timezone (`site.display_timezone`, defaulting to `site.timezone`). | Humans browse these directories. The instant stays recoverable from the database and the `.json` sidecar, so nothing is lost. |
-| Every generated file carries a header comment saying it is generated. | Prevents humans editing generated files and losing work. |
+| `HEALTHY` | Working, and its dependencies are reachable |
+| `DEGRADED` | Working, with something that needs attention |
+| `UNHEALTHY` | Cannot do its job right now |
+| `UNKNOWN` | No recent observation |
+| `DISABLED` | Turned off by configuration. Not an error |
 
----
+Camera states are Frigate's own: `ONLINE`, `OFFLINE`, `DISABLED`.
 
-## Abbreviations
+## Other terms
 
 | | |
 |---|---|
 | **B2** | Backblaze B2 Cloud Storage |
-| **SSOT** | Single source of truth |
-| **RTSP** | Real Time Streaming Protocol — how cameras are ingested |
-| **VAAPI / QSV** | Video Acceleration API / Intel Quick Sync — hardware video decode |
-| **TPU** | Tensor Processing Unit, e.g. Google Coral Edge TPU |
+| **RTSP** | Real Time Streaming Protocol, how cameras deliver video |
+| **H.264 / H.265** | Video codecs. H.265 is smaller and less widely supported in browsers |
+| **Go2rtc** | The restreamer inside Frigate. The live view plays its streams rather than the camera's |
+| **SSOT** | Single source of truth, used here for `cameras.yml` |

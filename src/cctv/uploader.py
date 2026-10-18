@@ -873,7 +873,7 @@ class UploaderHealth:
             detail=(
                 "accepted"
                 if info.credentials_ok
-                else f"{info.detail} Rotate them: runbooks/rotate-credentials.md."
+                else f"{info.detail} Rotate them: docs/rotate-credentials.md."
             ),
         )
         return [reachable, credentials]
@@ -889,7 +889,7 @@ class UploaderHealth:
                     code="UPLOAD_FAILED_PERMANENT",
                     detail=(
                         f"{queue.failed_permanent} clip(s) will not retry without "
-                        f"intervention. See runbooks/recover-failed-uploads.md."
+                        f"intervention. See docs/recover-uploads.md."
                     ),
                 )
             )

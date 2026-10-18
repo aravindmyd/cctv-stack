@@ -18,7 +18,7 @@ adds the four pieces it leaves to the operator:
 
 It is not a replacement for Frigate. It is the missing layer around it.
 
-**Current release: `0.3.0`.** Clips, B2 upload, local retention and health are
+**Current release: `0.3.1`.** Clips, B2 upload, local retention and health are
 implemented. Cloud retention, an aggregate status page and the one-command installer are
 not — see [`CONTRIBUTING.md`](CONTRIBUTING.md) for the exact state and roadmap.
 
@@ -47,10 +47,10 @@ pip install "cctv-stack[mqtt,storage]"
 ### Container image
 
 ```bash
-docker pull ghcr.io/aravindmyd/cctv-stack:0.3.0
+docker pull ghcr.io/aravindmyd/cctv-stack:0.3.1
 ```
 
-Tags published per release: `:0.3.0`, `:0.3`, and the commit tag `:sha-<short>`.
+Tags published per release: `:0.3.1`, `:0.3`, and the commit tag `:sha-<short>`.
 A moving `:edge` tag follows `master`. If the registry package is private, run
 `docker login ghcr.io` first. The image includes `ffmpeg`/`ffprobe`.
 

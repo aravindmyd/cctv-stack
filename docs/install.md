@@ -35,9 +35,9 @@ chmod 600 .env
 The file is commented; the values you must set are:
 
 ```ini
-# The published image. `edge` follows the default branch; pin a versioned tag once it
-# matches the configuration you need (see the note below).
-CCTV_IMAGE=ghcr.io/aravindmyd/cctv-stack:edge
+# The published image. Pin the release you are installing; `edge` follows the default
+# branch and is not a stable target.
+CCTV_IMAGE=ghcr.io/aravindmyd/cctv-stack:0.3.1
 
 # RTSP URLs. Replace the placeholder user:password and host.
 CAMERA_FRONT_DOOR_RTSP=rtsp://user:password@192.168.1.10:554/Streaming/Channels/101
@@ -51,10 +51,9 @@ Leave `CCTV_STORAGE_BUCKET` empty for a local-only install. The uploader will ru
 report `DISABLED`; nothing is uploaded and nothing is hidden.
 
 !!! note "Image tags"
-    `edge` is rebuilt on every merge and follows the configuration shown here. The newest
-    versioned release is `0.3.0`, which predates the `frigate.auth` switch in the example
-    `cameras.yml`; with `0.3.0`, delete the `frigate:` block or validation will reject the
-    unknown key. Pin a versioned tag once a release matches these docs.
+    `0.3.1` is the current release and matches the configuration shown here. `:0.3` follows
+    the newest 0.3.x patch, and `:edge` is rebuilt on every merge to `master` — useful for
+    testing a change, not for a site you rely on.
 
 ### 2. Edit `config/cameras.yml`
 
@@ -89,8 +88,8 @@ docker compose run --rm --no-deps config \
 ```
 
 A valid file prints `ok: 1 camera(s) enabled: front-door`. An invalid one prints the
-reason and exits 1. Fix it before going further; a bad camera URL that reaches Frigate
-produces a camera that looks configured and never connects.
+reason and exits 78 (`EX_CONFIG`). Fix it before going further; a bad camera URL that
+reaches Frigate produces a camera that looks configured and never connects.
 
 ### 4. Start
 

@@ -51,20 +51,6 @@ The runbooks are no longer internal documents: they are published pages under `d
 
 ---
 
-## 4. No 0.3.1 yet
-
-Two defects are fixed in the tree but unreleased, so the published site works around them:
-
-- `cctv-config validate` exits **1** on an invalid config, while M6.5 and [INV-11](architecture/invariants.md)
-  require **78**.
-- The published `0.3.0` image predates the top-level `frigate:` key in `cameras.yml` and
-  rejects the current `config/cameras.example.yml`, so `docs/install.md` pins `:edge` rather
-  than a version.
-
-Cutting `0.3.1` closes both.
-
----
-
 ## Open questions
 
 Only one question is still live for the next milestone:

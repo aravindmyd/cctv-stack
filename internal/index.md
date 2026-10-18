@@ -22,7 +22,7 @@ nothing from this directory. A new agent should start with [`../AGENTS.md`](../A
 | Product requirements | ✅ Complete — [`prd.md`](prd.md) |
 | Architecture and design | 📐 **Written, awaiting owner review** |
 | Implementation | ✅ **M1–M3 built, M4 J1 built** — detect → materialise → durable upload → local retention |
-| Release | ✅ **0.3.0** — published to PyPI and GHCR |
+| Release | ✅ **0.3.1** — published to PyPI and GHCR |
 | Client-site packaging | 📐 |
 | Current problems | 📐 — [`now.md`](now.md) |
 

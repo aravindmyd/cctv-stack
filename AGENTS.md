@@ -10,8 +10,8 @@ Read this file first, then [`internal/index.md`](internal/index.md) — the inte
 | | |
 |---|---|
 | **Phase** | **BUILDING — v0.3** |
-| **Implemented** | Detect → materialise at the canonical clip path → **upload to Backblaze B2, exactly once** → installable. M3 is certified against a live S3-compatible server. M4's **J1 local retention** runs as the `cleanup` service, with a health surface on 8083. Lint clean; 730 tests green, 18 skipped (they need a live S3 endpoint or the Docker daemon). |
-| **Not implemented** | M4's cloud retention (J2), reconciliation (J3), housekeeping (J4), `force-delete` and the single-instance lock; the aggregate status page and alerting (M5); backup, upgrade (M7). One thing is deleted today — a clip whose upload is terminal-success and that is past `retention.local_days` — see [`.private/plans/backlog.md`](.private/plans/backlog.md) for exactly what is deferred and why. |
+| **Implemented** | Detect → materialise at the canonical clip path → **upload to Backblaze B2, exactly once** → installable. M3 is certified against a live S3-compatible server. M4's **J1 local retention** runs as the `cleanup` service, with a health surface on 8083. Lint clean; 750 tests green, 18 skipped (they need a live S3 endpoint or the Docker daemon). |
+| **Not implemented** | M4's cloud retention (J2), reconciliation (J3) and housekeeping (J4); `force-delete` and the single-instance lock, both **deliberately deferred** by [`internal/adr/0021`](internal/adr/0021-defer-force-delete-and-advisory-lock.md); the aggregate status page and alerting (M5); backup, upgrade (M7). One thing is deleted today — a clip whose upload is terminal-success and that is past `retention.local_days` — see [`.private/plans/backlog.md`](.private/plans/backlog.md) for exactly what is deferred and why. |
 | **Authority** | Design docs in `internal/` are the source of truth. Code follows docs, not the other way round. `docs/` is the published user site and is not authoritative. |
 
 > **Where things stand.** `src/cctv/` is the shared library plus the three entry points:
@@ -143,7 +143,8 @@ Summary of the non-negotiables:
 - **Commit messages:** Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:`, `refactor:`).
   100-character signed-off provenance (`git commit -s --signoff`).
 - **Every non-obvious decision gets an ADR.** If you cannot find one, write one
-  using [`internal/adr/0000-template.md`](internal/adr/0000-template.md).
+  using any accepted ADR as the shape — context, decision, consequences, and (where it
+  matters) the triggers that would reopen it.
 - **Docs are updated in the same change as the code.** A PR that changes behaviour
   without changing docs is incomplete.
 

@@ -101,7 +101,9 @@ but is not a reason for Docker to consider the container dead. Monitoring uses
 > §9. It reports `storage_reachable` as **`DISABLED`** — cloud retention (J2) does not exist
 > yet, and an unimplemented check must never read as a check that passed. `DISABLED` is neutral
 > in `derive_state`, so the gap is stated without making the component look broken. The
-> `POST /admin/force-delete` route below is likewise not built yet.
+> `POST /admin/force-delete` route below is likewise not built; M4.13 and the single-instance
+> lock (M4.14) are deliberately deferred by
+> [ADR-0021](../../adr/0021-defer-force-delete-and-advisory-lock.md).
 
 ### 1.6 Mandatory machine codes
 

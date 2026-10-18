@@ -25,12 +25,12 @@ whole suite locally (748 passed, 18 skipped) — and CI has no sandbox.
 **Impact:** the design record is written but never signed off, so code and docs are kept in
 step by review rather than by an approved baseline.
 
-**What needs review** (38 documents)
+**What needs review** (39 documents)
 - `architecture/hld.md` — system architecture
 - `architecture/invariants.md` — the hard rules
 - 6 contracts in `architecture/contracts/`
 - 10 LLDs in `architecture/lld/` (`00`–`09`)
-- 20 ADRs in `adr/` — 0001–0019 Accepted, 0020 Proposed
+- 21 ADRs in `adr/` — 0001–0019 and 0021 Accepted, 0020 Proposed
 
 The runbooks are no longer internal documents: they are published pages under `docs/`.
 
@@ -44,7 +44,7 @@ The runbooks are no longer internal documents: they are published pages under `d
 
 | Milestone | What's missing | Target |
 |---|---|---|
-| M4 (retention) | J1 local retention is built and runs as `cctv-cleanup`; missing: `force-delete` (M4.13), the single-instance lock (M4.14), then cloud retention (J2), reconciliation (J3) and housekeeping (J4) | M4.13/14 open |
+| M4 (retention) | J1 local retention is built and runs as `cctv-cleanup`; missing: cloud retention (J2), reconciliation (J3) and housekeeping (J4). `force-delete` (M4.13) and the lock (M4.14) are deliberately deferred — [ADR-0021](adr/0021-defer-force-delete-and-advisory-lock.md) | J2–J5 |
 | M5 (status page) | Aggregate status page and alerting | After M4 |
 | M6 (installer) | One-command client install, signed bundles, detection | After M5 |
 | M7 (backup) | Backup, restore, upgrade | After M6 |

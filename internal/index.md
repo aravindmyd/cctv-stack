@@ -27,7 +27,7 @@ nothing from this directory. A new agent should start with [`../AGENTS.md`](../A
 | Current problems | 📐 — [`now.md`](now.md) |
 
 The design set is complete: 4 entry points, 1 HLD, 1 invariant list, 6 contracts,
-10 LLDs, and 20 ADRs. The runbooks are published pages under `docs/`, not internal
+10 LLDs, and 21 ADRs. The runbooks are published pages under `docs/`, not internal
 documents.
 
 **What is built** (`src/cctv/`, entry points `cctv-clip-worker`, `cctv-config`,
@@ -37,10 +37,11 @@ retention deletes a clip only after its upload is terminal-success. Each service
 `/health` and `/metrics` per
 [`service-contracts.md`](architecture/contracts/service-contracts.md).
 
-**What is not built:** M4's cloud retention, reconciliation, housekeeping and force-delete;
-the aggregate `/status` page and alerting (M5); the installer (M6); and
-backup/restore/upgrade (M7). Nothing is deleted without a successful upload, so
-[INV-1](architecture/invariants.md) holds.
+**What is not built:** M4's cloud retention, reconciliation and housekeeping; `force-delete`
+and the cleanup lock, both deliberately deferred by
+[ADR-0021](adr/0021-defer-force-delete-and-advisory-lock.md); the aggregate `/status` page and
+alerting (M5); the installer (M6); and backup/restore/upgrade (M7). Nothing is deleted without
+a successful upload, so [INV-1](architecture/invariants.md) holds.
 
 spike/ in the repo root is still a throwaway verification harness for M1, not product code,
 and goes once M1's `VERIFY` items are replaced with measurements.
@@ -142,6 +143,7 @@ Same as above, then:
 | [`adr/0018-uv-as-toolchain.md`](adr/0018-uv-as-toolchain.md) | uv for development, CI and the build stage — never at runtime | 🛠 |
 | [`adr/0019-rustfs-as-s3-test-double.md`](adr/0019-rustfs-as-s3-test-double.md) | RustFS as the S3 test double for integration testing | 🛠 |
 | [`adr/0020-release-artifacts-and-delivery-modes.md`](adr/0020-release-artifacts-and-delivery-modes.md) | A signed, digest-pinned release bundle; connected, mirrored and air-gapped delivery | 📐 |
+| [`adr/0021-defer-force-delete-and-advisory-lock.md`](adr/0021-defer-force-delete-and-advisory-lock.md) | Defer force-delete (M4.13) and the cleanup advisory lock (M4.14) | 🛠 |
 
 ### Published site
 

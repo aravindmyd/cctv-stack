@@ -117,7 +117,7 @@ Same as above, then:
 
 | Doc | Decision | Status |
 |---|---|---|
-| [`adr/0000-template.md`](adr/0000-template.md) | ADR template | ✅ |
+| (Template removed from nav) | | |
 | [`adr/0001-frigate-as-detection-engine.md`](adr/0001-frigate-as-detection-engine.md) | Use Frigate rather than build detection | 📐 |
 | [`adr/0002-independent-per-site-deployments.md`](adr/0002-independent-per-site-deployments.md) | No central hub | 📐 |
 | [`adr/0003-cameras-yml-single-source-of-truth.md`](adr/0003-cameras-yml-single-source-of-truth.md) | `cameras.yml` is canon, Frigate config is generated | 📐 |

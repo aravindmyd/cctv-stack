@@ -358,7 +358,7 @@ VALUES (..., 'PENDING', ...);
 The requested range, the achieved duration, the coverage ratio, the largest gap, and the
 fetch-attempt count are all persisted. They are what makes [INV-14](../invariants.md)
 auditable after the fact, and they turn "are the clips right?" into a query — see
-[`database-schema.md`](../contracts/database-schema.md#23-clips---the-central-table).
+[`database-schema.md`](../contracts/database-schema.md#23-clips-the-central-table).
 
 `upload_state = 'PENDING'` is what hands the clip to the uploader. A `SKIPPED_BY_POLICY`
 insert is used instead when the camera has `retention.upload: false`.

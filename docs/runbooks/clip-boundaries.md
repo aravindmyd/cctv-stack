@@ -124,7 +124,7 @@ docker compose exec status-collector curlie -s localhost:8084/health \
 and no retry can help.
 
 **Fix:** increase `record.motion.days` in Frigate's generated config. That value is the
-clip-worker's recovery budget — see [OQ-10](../plans/open-questions.md) (moved to `.private/plans/`).
+clip-worker's recovery budget — see OQ-10 (tracked in `.private/plans/open-questions.md`, not in docs).
 
 ```bash
 # config/cameras.yml — or set it globally

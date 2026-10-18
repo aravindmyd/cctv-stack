@@ -39,7 +39,7 @@ the aggregate `/status` page and alerting (M5); the installer (M6); and
 backup/restore/upgrade (M7). Nothing is deleted without a successful upload, so
 [INV-1](architecture/invariants.md) holds.
 
-[`../spike/`](../spike/) (in the repo root) is still a throwaway verification harness for M1, not product code,
+spike/ in the repo root is still a throwaway verification harness for M1, not product code,
 and goes once M1's `VERIFY` items are replaced with measurements.
 
 Only two open questions touch M1, and both are answered by running the probe: **OQ-10**
@@ -52,9 +52,7 @@ Only two open questions touch M1, and both are answered by running the probe: **
 
 ### If you are an AI agent starting fresh
 
-1. [`../AGENTS.md`](../AGENTS.md) (in the repo root) — repo rules, invariants summary, conventions
-2. [`../CONTRIBUTING.md`](../CONTRIBUTING.md) (in the repo root) — current state, development, CI and release process
-3. [`glossary.md`](glossary.md) — vocabulary, **read this before writing anything**
+1. [`glossary.md`](glossary.md) — vocabulary, **read this before writing anything**
 4. [`architecture/hld.md`](architecture/hld.md)
 5. [`architecture/invariants.md`](architecture/invariants.md)
 6. [`architecture/contracts/`](architecture/contracts/) — the interfaces you must honour

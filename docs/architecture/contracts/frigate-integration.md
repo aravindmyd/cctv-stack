@@ -333,7 +333,7 @@ change Frigate's grouping. See [`cameras-config-schema.md`](cameras-config-schem
 
 > **MEASURED 2026-09-13** — Frigate 0.18.0-77a66e7, `TZ=Asia/Kolkata`, default cutoffs,
 > driven through the manual-event API so the review maintainer ran its normal path. Method
-> and limitations: [`dev-synthetic/`](../../dev-synthetic/README.md).
+> and limitations are in the repo-level dev-synthetic/ directory (removed from docs).
 >
 > | Question | Result |
 > |---|---|
@@ -383,7 +383,7 @@ change Frigate's grouping. See [`cameras-config-schema.md`](cameras-config-schem
 The first measurement drove everything through the manual-event API, which cannot answer
 the stationary-subject question and could not confirm the message types. The second run
 replaces the test pattern with **real footage containing real people**
-([`dev-synthetic/fixture-from-video.sh`](../../dev-synthetic/fixture-from-video.sh)), so
+(fixture-from-video.sh is in the repo-level dev-synthetic/ directory, removed from docs), so
 Frigate runs its own path end to end: ffmpeg → detector → events → review maintainer. No
 API is involved at any point.
 
@@ -743,6 +743,6 @@ recorded here, because a wrong assumption here invalidates the LLD.
 
 **Still outstanding, and why:** the items above that need a completed *event* were skipped
 because the probe config disables detection for speed and determinism. Re-run the probe
-with detection enabled (see [`spike/README.md`](../../spike/README.md) (in the repo root)) — or simply walk
+with detection enabled (see spike/README.md in the repo root — removed from docs) — or simply walk
 past a camera — to cover `retain`/`unretain`, the event-scoped endpoint, and the
 `frigate/events` payload.

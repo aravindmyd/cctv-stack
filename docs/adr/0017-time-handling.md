@@ -97,7 +97,7 @@ Supporting decisions:
   under `recordings/2026-09-12/18/`, which is UTC. The tree is UTC whatever the container
   is set to, so [`disaster-recovery.md`](../runbooks/disaster-recovery.md) may rely on
   that, and no code change follows. The measurement came free with the first run of
-  [`dev-synthetic/`](../../dev-synthetic/README.md) (in the repo root)
+  dev-synthetic/ (in the repo root — removed from docs)
 - **Displayed time can disagree with Frigate's own UI** if the two are configured with
   different zones. IST's `:30` offset makes that more visible than a whole-hour offset
   would. Added as a `doctor.sh` check.

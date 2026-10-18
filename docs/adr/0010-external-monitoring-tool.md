@@ -1,6 +1,6 @@
 # ADR-0010: Reuse an external monitoring tool for the dashboard and alerting
 
-- **Status:** Accepted (tool selection still open — see [`plans/open-questions.md`](../plans/open-questions.md) (moved to `.private/plans/`))
+- **Status:** Accepted (tool selection still open — see plans/open-questions.md (moved to `.private/plans/`))
 - **Date:** 2026-09-12
 - **Deciders:** project owner
 - **Related:** [INV-6](../architecture/invariants.md), PRD §11, [`lld/06`](../architecture/lld/06-health-and-monitoring.md)
@@ -83,7 +83,7 @@ imperatively through a UI creates a component whose state lives only in a UI and
 container volume — violating the packaging premise, and making threat #4 below real.
 
 Uptime Kuma remains fully supported, at the cost of one documented manual import step.
-The final choice is tracked in [`plans/open-questions.md`](../plans/open-questions.md) (moved to `.private/plans/`).
+The final choice is tracked in plans/open-questions.md (moved to `.private/plans/`).
 
 ## Consequences
 

@@ -393,9 +393,7 @@ def test_projection_is_suppressed_without_enough_history() -> None:
         db.DiskSample(at=86400.0, free_bytes=1, clips_bytes=1024**3, media_bytes=0),
     ]
 
-    projection = status.storage_projection(
-        samples, free_bytes=10 * 1024**3, min_days_history=3.0
-    )
+    projection = status.storage_projection(samples, free_bytes=10 * 1024**3, min_days_history=3.0)
 
     assert projection.days_to_full is None
     assert projection.reason is not None
@@ -409,9 +407,7 @@ def test_projection_computes_days_from_the_trailing_growth_rate() -> None:
         db.DiskSample(at=5 * day, free_bytes=0, clips_bytes=5 * 1024**3, media_bytes=0),
     ]
 
-    projection = status.storage_projection(
-        samples, free_bytes=10 * 1024**3, min_days_history=3.0
-    )
+    projection = status.storage_projection(samples, free_bytes=10 * 1024**3, min_days_history=3.0)
 
     assert projection.growth_bytes_per_day == pytest.approx(1024**3)
     assert projection.days_to_full == pytest.approx(10.0)
@@ -424,9 +420,7 @@ def test_a_flat_disk_is_not_projected_to_fill() -> None:
         db.DiskSample(at=5 * day, free_bytes=0, clips_bytes=1024**3, media_bytes=0),
     ]
 
-    projection = status.storage_projection(
-        samples, free_bytes=1024**3, min_days_history=3.0
-    )
+    projection = status.storage_projection(samples, free_bytes=1024**3, min_days_history=3.0)
 
     assert projection.days_to_full is None
     assert projection.reason == "footage is not growing"
@@ -715,9 +709,7 @@ def test_status_is_served_as_json_or_html_on_the_same_path() -> None:
     )
     try:
         port = server.server_address[1]
-        with urllib.request.urlopen(
-            f"http://127.0.0.1:{port}/status", timeout=5
-        ) as response:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/status", timeout=5) as response:
             payload = json.loads(response.read())
         assert payload["overall"] == "HEALTHY"
 
@@ -768,9 +760,7 @@ def test_the_health_report_uses_the_contract_check_names(
             "cleanup": healthy_payload("cleanup"),
         },
     )
-    service = StatusService(
-        settings=settings, config=make_config(tmp_path), collector=collector
-    )
+    service = StatusService(settings=settings, config=make_config(tmp_path), collector=collector)
     service.collect_once()
 
     names = {check.name for check in service.report().checks}
@@ -826,9 +816,7 @@ def test_the_gauges_have_bounded_cardinality(
             "cleanup": healthy_payload("cleanup"),
         },
     )
-    service = StatusService(
-        settings=settings, config=make_config(tmp_path), collector=collector
-    )
+    service = StatusService(settings=settings, config=make_config(tmp_path), collector=collector)
     service.collect_once()
 
     gauges = service.gauges()

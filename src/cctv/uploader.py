@@ -243,22 +243,16 @@ class UploadSettings:
             quota_backoff_max_s=number(
                 "CCTV_UPLOAD_QUOTA_BACKOFF_MAX_S", DEFAULT_QUOTA_BACKOFF_MAX_S
             ),
-            upload_concurrency=int(
-                number("CCTV_UPLOAD_CONCURRENCY", DEFAULT_UPLOAD_CONCURRENCY)
-            ),
+            upload_concurrency=int(number("CCTV_UPLOAD_CONCURRENCY", DEFAULT_UPLOAD_CONCURRENCY)),
             multipart_threshold_bytes=int(
                 number(
                     "CCTV_UPLOAD_MULTIPART_THRESHOLD_BYTES",
                     storage.DEFAULT_MULTIPART_THRESHOLD_BYTES,
                 )
             ),
-            stale_upload_warn_s=number(
-                "CCTV_UPLOAD_STALE_WARN_S", DEFAULT_STALE_UPLOAD_WARN_S
-            ),
+            stale_upload_warn_s=number("CCTV_UPLOAD_STALE_WARN_S", DEFAULT_STALE_UPLOAD_WARN_S),
             backlog_warn_s=number("CCTV_UPLOAD_BACKLOG_WARN_S", DEFAULT_BACKLOG_WARN_S),
-            backlog_critical_s=number(
-                "CCTV_UPLOAD_BACKLOG_CRITICAL_S", DEFAULT_BACKLOG_CRITICAL_S
-            ),
+            backlog_critical_s=number("CCTV_UPLOAD_BACKLOG_CRITICAL_S", DEFAULT_BACKLOG_CRITICAL_S),
             log_level=env.get("CCTV_LOG_LEVEL") or None,
         )
 
@@ -422,9 +416,7 @@ class Uploader:
 
     # -- the loop ----------------------------------------------------------------------
 
-    def upload_one(
-        self, conn: sqlite3.Connection, *, owner: str
-    ) -> UploadOutcome | None:
+    def upload_one(self, conn: sqlite3.Connection, *, owner: str) -> UploadOutcome | None:
         """Claim and process the oldest eligible clip, or return `None` when idle."""
         if self._adapter is None:
             return None
@@ -627,11 +619,7 @@ class Uploader:
                 message=message,
                 now=self._clock(),
             )
-            outcome = (
-                "checksum_mismatch"
-                if exc.error_class == "checksum"
-                else "permanent_error"
-            )
+            outcome = "checksum_mismatch" if exc.error_class == "checksum" else "permanent_error"
             status = PERMANENT
             with self._lock:
                 self._failed_permanent += 1
@@ -810,8 +798,7 @@ class UploaderHealth:
         return health.HealthReport(
             component=COMPONENT,
             checks=tuple(
-                health.Check(name=name, state=health.DISABLED, detail=detail)
-                for name in names
+                health.Check(name=name, state=health.DISABLED, detail=detail) for name in names
             ),
             summary=detail,
             since=self._started_at,
@@ -847,11 +834,7 @@ class UploaderHealth:
                 code="DB_UNAVAILABLE",
                 detail=f"could not list stored clips: {exc}",
             )
-        missing = [
-            str(row["path"])
-            for row in rows
-            if not (self._data_dir / row["path"]).exists()
-        ]
+        missing = [str(row["path"]) for row in rows if not (self._data_dir / row["path"]).exists()]
         if missing:
             return health.Check(
                 name="local_files_readable",
@@ -954,9 +937,7 @@ class UploaderHealth:
                 else f"{size_verified} multipart upload(s) verified by size and local sha256"
             )
             checks.append(
-                health.Check(
-                    name="upload_verification", state=health.HEALTHY, detail=detail
-                )
+                health.Check(name="upload_verification", state=health.HEALTHY, detail=detail)
             )
         return checks
 
@@ -1039,9 +1020,7 @@ class UploaderHealth:
             "cctv_clips_retry_wait": queue.retry_wait,
             "cctv_clips_failed_permanent": queue.failed_permanent,
             "cctv_clips_uploaded_24h": queue.uploaded_24h,
-            "cctv_oldest_pending_age_seconds": round(
-                queue.oldest_pending_age_s or 0.0, 3
-            ),
+            "cctv_oldest_pending_age_seconds": round(queue.oldest_pending_age_s or 0.0, 3),
         }
 
 
@@ -1175,17 +1154,13 @@ class UploadService:
     def policy_pass(self) -> int:
         """Mark clips from `retention.upload: false` cameras as `SKIPPED_BY_POLICY`."""
         skipped_cameras = [
-            name
-            for name, camera in self._config.cameras.items()
-            if not camera.retention.upload
+            name for name, camera in self._config.cameras.items() if not camera.retention.upload
         ]
         if not skipped_cameras:
             return 0
         conn = db.open_db(self._settings.db_path)
         try:
-            changed = db.skip_by_policy(
-                conn, cameras=skipped_cameras, now=self._clock()
-            )
+            changed = db.skip_by_policy(conn, cameras=skipped_cameras, now=self._clock())
             if changed:
                 logger.info(
                     "clips skipped by policy",
@@ -1295,9 +1270,7 @@ def _install_signal_handlers(stop: threading.Event) -> None:
         # process and its group, and two "shutdown requested" lines for one shutdown reads
         # like two shutdowns.
         if not stop.is_set():
-            logger.info(
-                "shutdown requested", extra={"reason": signal.Signals(signum).name}
-            )
+            logger.info("shutdown requested", extra={"reason": signal.Signals(signum).name})
         stop.set()
 
     for signum in (signal.SIGTERM, signal.SIGINT):
@@ -1396,9 +1369,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         adapter=adapter,
         settings=settings,
     )
-    reporter = build_health_reporter(
-        settings=settings, uploader=uploader, adapter=adapter
-    )
+    reporter = build_health_reporter(settings=settings, uploader=uploader, adapter=adapter)
 
     stop = threading.Event()
     _install_signal_handlers(stop)
@@ -1418,9 +1389,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             extra={"host": settings.health_host, "count": settings.health_port},
         )
         if not settings.internal_token:
-            logger.warning(
-                "INTERNAL_API_TOKEN is unset, so the admin endpoints are not mounted"
-            )
+            logger.warning("INTERNAL_API_TOKEN is unset, so the admin endpoints are not mounted")
     else:
         logger.warning("no health endpoint: CCTV_UPLOADER_HEALTH_PORT is 0")
 

@@ -82,9 +82,7 @@ def test_the_inventory_is_derived_from_configuration(tmp_path: Path) -> None:
 def test_each_camera_gets_its_own_monitor_without_editing_anything(
     tmp_path: Path,
 ) -> None:
-    cameras = {
-        m.name for m in inventory(tmp_path) if isinstance(m, monitoring.IngestMonitor)
-    }
+    cameras = {m.name for m in inventory(tmp_path) if isinstance(m, monitoring.IngestMonitor)}
 
     assert {"camera-front-door", "camera-garage"} <= cameras
     assert {"storage", "disk", "backup-freshness", "retention"} <= cameras
@@ -175,9 +173,7 @@ def test_compose_puts_the_generated_config_where_the_collector_can_write() -> No
     assert "gatus-data:/gatus-data" in services["gatus"]["volumes"]
     assert "gatus-data" in document["volumes"]
     # No service may bind-mount a subdirectory of config/ that it must create itself.
-    assert not any(
-        "config/gatus" in str(entry) for entry in services["status"]["volumes"]
-    )
+    assert not any("config/gatus" in str(entry) for entry in services["status"]["volumes"])
 
 
 # ---------------------------------------------------------------------------------------
@@ -303,8 +299,6 @@ def test_a_heartbeat_never_raises_when_the_tool_is_down() -> None:
 
 def test_no_token_means_no_push_attempt() -> None:
     assert (
-        monitoring.push_heartbeat(
-            base_url="http://127.0.0.1:1", key="cctv_disk", token="", ok=True
-        )
+        monitoring.push_heartbeat(base_url="http://127.0.0.1:1", key="cctv_disk", token="", ok=True)
         is False
     )

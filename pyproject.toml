@@ -41,6 +41,12 @@ dependencies = [
 dev = [
     "pytest>=8.0",
     "ruff>=0.6",
+    # Docs tooling lives here so `.pre-commit-config.yaml` and the Deploy docs workflow
+    # resolve it from the same locked versions instead of each floating independently.
+    # `<2` is deliberate: mkdocs 2.0 removes the plugin system and breaks every theme
+    # override, with no migration path (docs: squidfunk.github.io/mkdocs-material).
+    "mkdocs>=1.6,<2",
+    "mkdocs-material>=9.6",
 ]
 # Optional on purpose. A sweep-only deployment polls Frigate's API and needs no broker at
 # all, so making the MQTT client mandatory would mean installing a library the process has
@@ -78,6 +84,8 @@ Issues = "https://github.com/aravindmyd/cctv-stack/issues"
 dev = [
     "pytest>=8.0",
     "ruff>=0.6",
+    "mkdocs>=1.6,<2",
+    "mkdocs-material>=9.6",
 ]
 
 [tool.uv]

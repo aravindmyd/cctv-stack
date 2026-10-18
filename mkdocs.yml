@@ -1,7 +1,9 @@
 site_name: cctv-stack
 site_description: A self-hosted CCTV pipeline built on Frigate
 repo_url: https://github.com/aravindmyd/cctv-stack
-edit_uri: edit/feat/v1/docs/
+# The published site is built from the default branch, so "edit this page" must point
+# there too — a feature-branch link rots the moment it is merged.
+edit_uri: edit/master/docs/
 
 nav:
   - Home: index.md

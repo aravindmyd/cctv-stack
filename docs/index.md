@@ -55,7 +55,7 @@ Only two open questions touch M1, and both are answered by running the probe: **
 1. [`glossary.md`](glossary.md) — vocabulary, **read this before writing anything**
 4. [`architecture/hld.md`](architecture/hld.md)
 5. [`architecture/invariants.md`](architecture/invariants.md)
-6. [`architecture/contracts/`](architecture/contracts/) — the interfaces you must honour
+6. architecture/contracts/ — the interfaces you must honour
 7. The LLD for the component you are changing
 8. Relevant ADRs for *why*
 
@@ -63,7 +63,7 @@ Only two open questions touch M1, and both are answered by running the probe: **
 
 Same as above, then:
 
-8. [`runbooks/`](runbooks/) — what operating this actually looks like
+8. runbooks/ — what operating this actually looks like
 
 ### If you are the operator
 

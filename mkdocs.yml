@@ -60,7 +60,6 @@ nav:
     - Disaster recovery: runbooks/disaster-recovery.md
     - Clip boundaries: runbooks/clip-boundaries.md
   - Glossary: glossary.md
-  - Templates: adr/0000-template.md
 
 theme:
   name: material

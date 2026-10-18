@@ -1,7 +1,7 @@
 # High-level design
 
 > Status: 📐 Draft for review. Companion documents:
-> [invariants](invariants.md) · [contracts](contracts/) · [LLDs](lld/) · [ADRs](../adr/)
+> invariants.md · contracts/ · LLDs/ · ADRs/
 
 ---
 

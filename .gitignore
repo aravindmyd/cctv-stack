@@ -17,6 +17,10 @@ venv/
 # Editor state is per-machine, not project configuration
 .vscode/
 
+# Personal agent memory and local agent settings. This repository is public; nothing here is
+# project configuration and nothing here belongs in its history.
+.claude/
+
 # uv.lock is deliberately COMMITTED — do not ignore it (ADR-0018).
 .uv-cache/
 

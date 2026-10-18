@@ -58,7 +58,7 @@ A moving `:edge` tag follows `master`. If the registry package is private, run
 
 | Command | What it does |
 |---|---|
-| `cctv-config validate --cameras cameras.yml` | Validate the camera configuration. Exits non-zero on an invalid config |
+| `cctv-config validate --cameras cameras.yml` | Validate the camera configuration. Exits 78 (`EX_CONFIG`) on an invalid config |
 | `cctv-config generate --cameras cameras.yml --out frigate.yml` | Generate Frigate's configuration from `cameras.yml` |
 | `cctv-clip-worker` | Turn completed Frigate reviews into canonical clips |
 | `cctv-uploader` | Upload clips to B2 through the persisted retry state machine |

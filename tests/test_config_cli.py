@@ -28,7 +28,7 @@ import pytest
 import yaml
 
 from cctv.config import CamerasConfig, ConfigError, load_cameras_config
-from cctv.config_cli import build_frigate_config, main, render
+from cctv.config_cli import EXIT_CONFIG, build_frigate_config, main, render
 
 MAIN_URL = "rtsp://192.168.1.50:554/stream1"
 SUB_URL = "rtsp://192.168.1.50:554/stream2"
@@ -497,7 +497,7 @@ def test_validate_refuses_a_site_that_would_lose_footage(
     )
     path = write(tmp_path, text)
 
-    assert main(["validate", "--cameras", str(path)]) == 1
+    assert main(["validate", "--cameras", str(path)]) == EXIT_CONFIG
 
     assert "error:" in capsys.readouterr().err
 
@@ -509,7 +509,7 @@ def test_validate_refuses_a_config_with_no_enabled_cameras(
     quietly records nothing is the worst of the options available here."""
     path = write(tmp_path, ONLY_DISABLED)
 
-    assert main(["validate", "--cameras", str(path)]) == 1
+    assert main(["validate", "--cameras", str(path)]) == EXIT_CONFIG
 
     assert "no cameras are enabled" in capsys.readouterr().err
 
@@ -517,9 +517,16 @@ def test_validate_refuses_a_config_with_no_enabled_cameras(
 def test_validate_reports_a_missing_file(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    assert main(["validate", "--cameras", str(tmp_path / "not-here.yml")]) == 1
+    assert main(["validate", "--cameras", str(tmp_path / "not-here.yml")]) == EXIT_CONFIG
 
     assert "error:" in capsys.readouterr().err
+
+
+def test_an_invalid_config_exits_ex_config_not_1() -> None:
+    """`78` is the contract (LLD 00 §3, INV-11), not merely "non-zero": an installer has to
+    distinguish a bad config from an internal failure without reading stderr."""
+    assert EXIT_CONFIG == 78
+    assert EXIT_CONFIG != 1
 
 
 # --------------------------------------------------------------------------------------
@@ -573,7 +580,7 @@ def test_generate_refuses_an_unworkable_site(
     path = write(tmp_path, text)
     out = tmp_path / "config.yml"
 
-    assert main(["generate", "--cameras", str(path), "--out", str(out)]) == 1
+    assert main(["generate", "--cameras", str(path), "--out", str(out)]) == EXIT_CONFIG
 
     assert "error:" in capsys.readouterr().err
     assert not out.exists()

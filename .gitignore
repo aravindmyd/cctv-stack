@@ -14,6 +14,9 @@ venv/
 .ruff_cache/
 .mypy_cache/
 
+# Editor state is per-machine, not project configuration
+.vscode/
+
 # uv.lock is deliberately COMMITTED — do not ignore it (ADR-0018).
 .uv-cache/
 

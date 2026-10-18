@@ -1,8 +1,8 @@
 # Runbook: Recover failed uploads
 
 > **Status:** ✅ Implemented for the uploader itself (`/health`, `/admin/queue`, `/admin/retry`).
-> The aggregate `/status` page in §1 and the cleanup-dependent parts of §5 and §7 arrive with
-> those services (M4/M5); `/admin/verify` is not built — see §4.1.
+> The aggregate `/status` page in §1 and the cleanup-dependent parts of §5 and §7 need
+> services that are not built yet; `/admin/verify` is not built — see §4.1.
 > **Time:** 5 minutes to diagnose, longer to actually fix.
 
 Clips are not reaching Backblaze B2, or the queue is not draining. This runbook tells you
@@ -13,8 +13,7 @@ what to look at, in order, and what to do about each finding.
 ## First: nothing is lost
 
 Say this before doing anything else. By design, a clip that has not uploaded is **never
-deleted**, however old it is ([ADR-0009](../adr/0009-cleanup-safety-invariant.md)). Your
-footage is on disk. The cost of this problem is **disk growth**, not data loss — for as
+deleted**, however old it is. Your footage is on disk. The cost of this problem is **disk growth**, not data loss — for as
 long as you leave it unfixed.
 
 So: diagnose calmly, and do not reach for the force-delete option.
@@ -24,8 +23,8 @@ So: diagnose calmly, and do not reach for the force-delete option.
 ## 1. What does the system say?
 
 ```bash
-# The uploader's own view. The aggregate `/status` page arrives with M5 (§2 of
-# service-contracts). The port is published on loopback only.
+# The uploader's own view. The aggregate `/status` page is not built yet.
+# The port is published on loopback only.
 curl -s http://127.0.0.1:8082/health | jq '{state, summary}'
 curl -s http://127.0.0.1:8082/admin/queue -H "Authorization: Bearer $INTERNAL_API_TOKEN" \
   | jq '{pending, uploading, retry_wait, failed_permanent, uploaded_24h, oldest_pending_age_s}'
@@ -75,8 +74,8 @@ schema; the specific cause is in the `last_error` message and in the audit log.
 | `checksum` | The stored object does not match the local file | ❌ | §4.1 |
 | `unknown` | A `400` from the provider, or **the local file is missing** | ❌ | §4.1 for a checksum, §6 for a missing file |
 
-`throttled`, `file_missing` and `invalid_request` from `lld/04` §4 all map onto these six;
-the message and the audit event name which one it was.
+Provider-specific codes — `throttled`, `file_missing`, `invalid_request` — are folded into
+these six; the failure message and the audit event name which one it was.
 
 ### Backup paths are stale: nothing is reaching the cloud at all
 
@@ -187,17 +186,17 @@ Something is wrong with one of the two copies. Find out which before retrying.
 docker compose exec clip-worker sha256sum /data/clips/front-door/2026/09/11/18-32-45.mp4
 
 # 2. Compare with the object in the bucket. No download: every object carries its own
-#    sha256 in its metadata (cloud-object-layout §3.2).
+#    sha256 in its metadata.
 BUCKET=$(grep CCTV_STORAGE_BUCKET .env | cut -d= -f2)
 LOCATION=$(sed -n 's/^ *location: *//p' config/cameras.yml)
 aws s3api head-object --bucket "$BUCKET" --key "$LOCATION/clips/front-door/2026/09/11/18-32-45.mp4" \
   | jq '.Metadata.sha256, .ContentLength'
 ```
 
-> `/admin/verify` (LLD 04 §9) is **not implemented**. It re-downloads the whole object, and
-> downloads are the one thing B2 bills for, so it is opt-in work rather than something that
-> should have appeared in M3. `aws s3api head-object` above answers the same question for
-> free, because every object carries its `sha256` in its own metadata.
+> `/admin/verify` is **not implemented**. It re-downloads the whole object, and downloads
+> are the one thing B2 bills for, so it is opt-in work. `aws s3api head-object` above
+> answers the same question for free, because every object carries its `sha256` in its own
+> metadata.
 
 | Local matches DB? | Cloud object exists? | Conclusion |
 |---|---|---|
@@ -222,9 +221,8 @@ because they have not been uploaded.
 1.4 GB held. Growing ~300 MB/day at current rate. Disk full in ~41 days.
 ```
 
-This is the system working as designed: **it will not delete your only copy**
-([ADR-0009](../adr/0009-cleanup-safety-invariant.md)). The fix is to make the uploads
-succeed, not to delete the clips.
+This is the system working as designed: **it will not delete your only copy**. The fix is
+to make the uploads succeed, not to delete the clips.
 
 | Option | When it is appropriate |
 |---|---|

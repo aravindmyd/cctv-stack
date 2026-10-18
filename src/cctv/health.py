@@ -1,6 +1,6 @@
 """The health contract, and a small HTTP surface that serves it.
 
-[INV-6](../../../docs/architecture/invariants.md) is the reason this module exists: a
+[INV-6](../../../internal/architecture/invariants.md) is the reason this module exists: a
 component reported as `HEALTHY` must genuinely be able to do its job. Two rules make that
 structural rather than aspirational, and both are here rather than in each service:
 1. **`state` is derived, never assigned.** [`derive_state`][cctv.health.derive_state] is the
@@ -14,7 +14,7 @@ The HTTP layer is a thin shell: it does no health logic of its own, so every rul
 testable without a socket, and the socket can be tested separately with one request.
 
 Endpoints, per
-[`contracts/service-contracts.md`](../../../docs/architecture/contracts/service-contracts.md):
+[`contracts/service-contracts.md`](../../../internal/architecture/contracts/service-contracts.md):
 
 ```text
 GET  /health          JSON report;  ?strict=1 makes DEGRADED/UNKNOWN return 503

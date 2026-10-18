@@ -1,6 +1,6 @@
 """Tests for the logging layer.
 
-[INV-2](../../docs/architecture/invariants.md) is the whole point: no secret ever reaches a
+[INV-2](../../internal/architecture/invariants.md) is the whole point: no secret ever reaches a
 log sink, including the ones that ship logs off the machine. Three things here are
 load-bearing, and each has a way of looking correct while being broken:
 

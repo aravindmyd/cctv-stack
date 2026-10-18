@@ -2,7 +2,7 @@
 
 This is the v0.1 happy path and deliberately nothing else. No upload, no retention, no
 health surface. That narrowing is safe rather than merely convenient: with nothing deleting
-anything, [INV-1](../../../docs/architecture/invariants.md) holds trivially and the two
+anything, [INV-1](../../../internal/architecture/invariants.md) holds trivially and the two
 riskiest failure modes in the design — deleting a clip that was never backed up, and a disk
 that fills with no signal — are simply not present yet.
 

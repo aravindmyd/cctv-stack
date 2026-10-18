@@ -124,7 +124,7 @@ docker compose exec status-collector curlie -s localhost:8084/health \
 and no retry can help.
 
 **Fix:** increase `record.motion.days` in Frigate's generated config. That value is the
-clip-worker's recovery budget — see OQ-10 (tracked in `.private/plans/open-questions.md`, not in docs).
+clip-worker's recovery budget: if it is shorter than the outage, the footage is gone.
 
 ```bash
 # config/cameras.yml — or set it globally
@@ -345,10 +345,7 @@ clip:
   min_clip_duration_s: 1.0
 ```
 
-Every value is explained in
-[`lld/02`](../architecture/lld/02-clip-worker.md#9-configuration) and the reasoning
-behind the whole approach is in
-[ADR-0015](../adr/0015-clip-boundaries-and-padding.md).
+Every value is commented in the block above.
 
 **Do not set `trim_to_range: true` unless you have a specific reason.** It can only remove
 footage, it cannot cut exactly where you asked, and the default exists to prevent exactly

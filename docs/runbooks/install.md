@@ -3,11 +3,11 @@
 > **Status:** 🚧 Planned. Written for an operator, not a developer.
 > **Time:** 15–30 minutes, plus event time.
 >
-> **Current state (v0.3).** The detect-and-confirm installer described below is M6 and is
-> not built yet. Today's flow is the two-run `./install.sh` in the README: the first run
-> creates `.env` and `config/cameras.yml`, you edit both, and the second run validates,
-> builds and starts the stack. Host-profile detection, the interview, B2 provisioning and
-> the full verification phase are the target described here.
+> **Current state (v0.3).** Today's flow is the two-run `./install.sh` in the README: the
+> first run creates `.env` and `config/cameras.yml`, you edit both, and the second run
+> validates, builds and starts the stack. The detect-and-confirm installer described
+> below — host-profile detection, the interview, B2 provisioning and the full verification
+> phase — is not built yet.
 
 ---
 
@@ -260,9 +260,8 @@ hours is a problem.
 ### The status page says `CLIPS_OVERDUE_RETENTION`
 
 **Read this one carefully.** It means clips are being **held past their retention date**
-because they have not been uploaded. The system is deliberately not deleting them
-([why](../adr/0009-cleanup-safety-invariant.md)). Your disk will grow until you fix the
-upload.
+because they have not been uploaded. The system deliberately does not delete them. Your
+disk will grow until you fix the upload.
 
 See [`recover-failed-uploads.md`](recover-failed-uploads.md).
 

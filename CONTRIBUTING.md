@@ -22,8 +22,8 @@ design.
 | Backup, restore, upgrade | ⬜ deferred (M7) |
 
 What is deferred, and why, is recorded in
-[`docs/plans/backlog.md`](docs/plans/backlog.md). The client-site delivery plan is
-[`docs/plans/packaging.md`](docs/plans/packaging.md).
+[`.private/plans/backlog.md`](.private/plans/backlog.md). The client-site delivery plan is
+[`.private/plans/packaging.md`](.private/plans/packaging.md).
 
 ## How it fits together
 
@@ -65,7 +65,8 @@ tests/                    unit suite
 tests/integration/        live S3 suite against RustFS
 tests/e2e/                synthetic camera → Frigate → canonical clip
 dev-synthetic/            camera-free harness used by e2e and manual experiments
-docs/                     design authority: contracts, LLDs, ADRs, plans, runbooks
+docs/                     the published user site (install, operate, glossary)
+internal/                 design authority: PRD, contracts, LLDs, ADRs, status
 compose.yml               deployment boundary
 Dockerfile                one image, several entry points
 pyproject.toml            packaging, dependencies and tool configuration
@@ -73,20 +74,20 @@ pyproject.toml            packaging, dependencies and tool configuration
 
 ## Where the truth lives
 
-**The design documents in `docs/` are authoritative. Code follows docs, not the other
-way round.**
+**The design documents in `internal/` are authoritative. Code follows docs, not the other
+way round.** `docs/` is the published site and is not authoritative.
 
-1. [`docs/index.md`](docs/index.md) — reading order and map
+1. [`internal/index.md`](internal/index.md) — reading order and map
 2. [`docs/glossary.md`](docs/glossary.md) — vocabulary
-3. [`docs/architecture/hld.md`](docs/architecture/hld.md) — architecture
-4. [`docs/architecture/invariants.md`](docs/architecture/invariants.md) — non-negotiables
-5. [`docs/architecture/contracts/`](docs/architecture/contracts/) — exact interfaces
-6. The relevant LLD in [`docs/architecture/lld/`](docs/architecture/lld/)
-7. Relevant ADRs in [`docs/adr/`](docs/adr/)
+3. [`internal/architecture/hld.md`](internal/architecture/hld.md) — architecture
+4. [`internal/architecture/invariants.md`](internal/architecture/invariants.md) — non-negotiables
+5. [`internal/architecture/contracts/`](internal/architecture/contracts/) — exact interfaces
+6. The relevant LLD in [`internal/architecture/lld/`](internal/architecture/lld/)
+7. Relevant ADRs in [`internal/adr/`](internal/adr/)
 
 [`AGENTS.md`](AGENTS.md) contains the hard rules and the change process. If a request
 contradicts an invariant, stop and raise it in
-[`docs/plans/open-questions.md`](docs/plans/open-questions.md) instead of coding around it.
+[`.private/plans/open-questions.md`](.private/plans/open-questions.md) instead of coding around it.
 
 Every non-obvious decision gets an ADR. Docs are updated in the same change as the code.
 

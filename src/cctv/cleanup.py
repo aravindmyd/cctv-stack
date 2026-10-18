@@ -1,7 +1,8 @@
-"""Local clip retention — cleanup job J1 ([LLD 05](../../../docs/architecture/lld/05-cleanup.md)).
+"""Local clip retention — cleanup job J1
+([LLD 05](../../../internal/architecture/lld/05-cleanup.md)).
 
 This is the only module in the system that deletes a clip, and therefore the one that has to
-be the most conservative. [INV-1](../../../docs/architecture/invariants.md) is the reason: a
+be the most conservative. [INV-1](../../../internal/architecture/invariants.md) is the reason: a
 clip is never deleted locally until its upload state is terminal-success, or the operator
 explicitly forces it.
 
@@ -26,7 +27,7 @@ what to delete; delete differently for a retired camera; touch `data/media/` or
 
 **J1 only.** Cloud retention (J2), reconciliation (J3), housekeeping (J4) and the full
 retention report (J5) are not implemented yet; the deferred work is recorded in
-[`docs/plans/milestones.md`](../../../docs/plans/milestones.md). The service wrapper, health
+[`.private/plans/milestones.md`](../../../.private/plans/milestones.md). The service wrapper, health
 surface and compose entry point arrive with the rest of M4.
 """
 
@@ -457,7 +458,7 @@ class LocalRetention:
         """The sidecar to remove alongside the clip.
 
         The recorded `sidecar_path` is preferred; otherwise it is derived with the one path
-        function ([INV-5](../../../docs/architecture/invariants.md)) rather than by string
+        function ([INV-5](../../../internal/architecture/invariants.md)) rather than by string
         surgery, so the two can never disagree about where a sidecar lives. Deriving it from
         the already-resolved target means it cannot escape `clips/` either.
         """
@@ -520,7 +521,7 @@ def _unlink(path: Path) -> None:
 class CleanupHealth:
     """The component's answer to "are you actually working?".
 
-    [INV-6](../../../docs/architecture/invariants.md) requires every component to expose a
+    [INV-6](../../../internal/architecture/invariants.md) requires every component to expose a
     health state, and this is the surface that makes J1's trade honest: the clips being
     *held* are reported with their count, their size and their age, so "retention is running"
     can never quietly mean "retention is running and the disk is filling" (LLD 05 §7).

@@ -1,7 +1,8 @@
 # Glossary
 
-Read this before writing code or docs. Frigate's vocabulary is subtle, and most
-confusion in this project traces back to words that look like synonyms but are not.
+Frigate's vocabulary is subtle, and most confusion traces back to words that look like
+synonyms but are not. These are the terms this stack uses in its configuration, its
+health output and its file names.
 
 ---
 
@@ -23,8 +24,7 @@ confusion in this project traces back to words that look like synonyms but are n
 > ⚠️ **Frigate does not store event clips as MP4 files any more.**
 > `frigate/events/cleanup.py` contains `file_extension = None  # mp4 clips are no longer stored in /clips`.
 > An "event clip" is *cut on demand* from the recording segments by ffmpeg when you
-> call `GET /api/events/{event_id}/clip.mp4`. See
-> [`architecture/contracts/frigate-integration.md`](architecture/contracts/frigate-integration.md).
+> call `GET /api/events/{event_id}/clip.mp4`.
 > This is the single most important fact in the whole design.
 
 ---
@@ -49,12 +49,12 @@ confusion in this project traces back to words that look like synonyms but are n
 | **Degraded** | A component that is running but cannot do its job (e.g. uploader running but B2 unreachable). Distinct from **unhealthy**. | |
 | **Pre-roll** | Footage included *before* `review.start_time`, so the clip shows what led up to the first detection. Default 5 s. | |
 | **Post-roll** | Footage included *after* `review.end_time`, so the clip does not cut off while the subject is still in frame. Default 10 s. | |
-| **Review padding** | Frigate's own `REVIEW_PADDING` of **±4 s**, applied symmetrically when its UI exports a review. **We do not use it** — our pre-roll and post-roll are asymmetric and operator-configured ([ADR-0015](adr/0015-clip-boundaries-and-padding.md)). | Pre-roll / post-roll |
+| **Review padding** | Frigate's own `REVIEW_PADDING` of **±4 s**, applied symmetrically when its UI exports a review. **We do not use it** — our pre-roll and post-roll are asymmetric and operator-configured. | Pre-roll / post-roll |
 | **Segment flush** | Frigate writes new recording segments to cache and moves them to disk shortly afterwards. Until the flush happens, the footage is not available to a clip request. | |
 | **Flush grace** | The delay we wait after `review.end_time + post_roll_s` before fetching, so the final segment has reached disk. Default 5 s. | |
 | **Coverage ratio** | `actual_duration / requested_duration` for a materialised clip. Below 0.95 the clip is short; below 0.80 it is rejected and re-fetched. | |
 | **Gap** | A hole in a clip caused by a missing recording segment — a camera dropout, or a segment expired before we fetched. Recorded as `max_gap_s`; never repaired, because the footage is gone. | |
-| **Erring outward** | The rule that clip boundaries always over-run rather than under-run. Overshoot costs storage; undershoot loses evidence. See [INV-14](architecture/invariants.md). | |
+| **Erring outward** | The rule that clip boundaries always over-run rather than under-run. Overshoot costs storage; undershoot loses evidence. | |
 
 ---
 
@@ -80,7 +80,7 @@ Camera states reuse Frigate's own: `ONLINE`, `OFFLINE`, `DISABLED`.
 |---|---|
 | Camera names are `lowercase-kebab-case`, `[a-z0-9-]+`, max 32 chars. | They appear in filesystem paths and cloud object keys across multiple OSes and filesystems. Uppercase causes case-collision bugs on macOS and breaks URL/object-key sanity. |
 | Timestamps in the database are **epoch seconds (float)** — an instant, which carries no timezone. | Frigate's API speaks epoch seconds. An instant is comparable regardless of zone; rendering the *same instant* in two different zones is the classic source of duplicate and missing clips. |
-| Clip **filenames** are rendered in the site timezone (`site.display_timezone`, defaulting to `site.timezone`). | Humans browse these directories. The instant stays recoverable from the database and the `.json` sidecar, so nothing is lost. See [ADR-0017](adr/0017-time-handling.md). |
+| Clip **filenames** are rendered in the site timezone (`site.display_timezone`, defaulting to `site.timezone`). | Humans browse these directories. The instant stays recoverable from the database and the `.json` sidecar, so nothing is lost. |
 | Every generated file carries a header comment saying it is generated. | Prevents humans editing generated files and losing work. |
 
 ---
@@ -90,8 +90,6 @@ Camera states reuse Frigate's own: `ONLINE`, `OFFLINE`, `DISABLED`.
 | | |
 |---|---|
 | **B2** | Backblaze B2 Cloud Storage |
-| **HLD / LLD** | High-level design / low-level design |
-| **ADR** | Architecture Decision Record |
 | **SSOT** | Single source of truth |
 | **RTSP** | Real Time Streaming Protocol — how cameras are ingested |
 | **VAAPI / QSV** | Video Acceleration API / Intel Quick Sync — hardware video decode |

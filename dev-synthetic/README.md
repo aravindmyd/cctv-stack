@@ -17,7 +17,7 @@ runs in CI.
 
 Everything about our clip design now rests on how Frigate groups activity into **review
 items**: the trigger, the dedup key, the path basis, and the visit threshold
-([ADR-0016](../../docs/adr/0016-clip-per-review-item.md)). That behaviour needs a subject
+([ADR-0016](../../internal/adr/0016-clip-per-review-item.md)). That behaviour needs a subject
 who moves on demand. A person cannot always be produced, and even when they can, they
 cannot be produced *identically twice* — which makes them useless for a regression test.
 So the subject is replaced: Frigate does not care whether the activity it sees is live or
@@ -132,7 +132,7 @@ Both are visible in `compose.yml` rather than buried:
 
 Put answers in [`spike/RESULTS.md`](../../spike/RESULTS.md) as a `## Review lifecycle`
 section, then mark **M1.13 – M1.16** in
-[`docs/plans/milestones.md`](../../docs/plans/milestones.md). The Phase 0 run sheet and
+[`.private/plans/milestones.md`](../../.private/plans/milestones.md). The Phase 0 run sheet and
 this directory describe the same six questions; whichever answers them first is the one
 worth keeping, and `spike/` is still scheduled for deletion.
 

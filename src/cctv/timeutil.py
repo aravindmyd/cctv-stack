@@ -1,8 +1,8 @@
 """Instants and their rendering.
 
 Two kinds of time value exist in this system and confusing them is the single most
-common bug of this kind. See [ADR-0017](../../../docs/adr/0017-time-handling.md) and
-[INV-12](../../../docs/architecture/invariants.md).
+common bug of this kind. See [ADR-0017](../../../internal/adr/0017-time-handling.md) and
+[INV-12](../../../internal/architecture/invariants.md).
 
 * An **instant** is epoch seconds — a bare `float`. It is the same instant everywhere
   on earth, so it carries no timezone and cannot be "in UTC" or "in IST". This is what
@@ -56,7 +56,7 @@ def resolve_zone(name: str) -> ZoneInfo:
 
     Resolving here and passing `ZoneInfo` around — rather than passing a string and
     resolving per call — is what makes "resolved once at config load" enforceable
-    ([INV-12](../../../docs/architecture/invariants.md)) instead of a convention.
+    ([INV-12](../../../internal/architecture/invariants.md)) instead of a convention.
 
     Rejects bare offsets, because they cannot express DST history. Rejects names
     absent from tzdata, because `ZoneInfo` would otherwise fail deep inside a worker
@@ -142,7 +142,7 @@ def has_dst(zone: ZoneInfo, year: int = 2026) -> bool:
     Used by tests and by an installer warning. A DST-observing site cannot be treated
     as though it behaves like IST: Indian Standard Time is UTC+05:30 with no DST, so
     the fallback-collision case in
-    [ADR-0006](../../../docs/adr/0006-canonical-clip-layout.md) cannot arise there —
+    [ADR-0006](../../../internal/adr/0006-canonical-clip-layout.md) cannot arise there —
     but it certainly can in Sydney, which is the value in the example config.
     """
     early = render(_dt.datetime(year, 1, 15, 12, tzinfo=_dt.UTC).timestamp(), zone)

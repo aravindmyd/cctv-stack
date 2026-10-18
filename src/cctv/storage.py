@@ -1,16 +1,16 @@
 """The storage adapter — the only module that knows what a "cloud" is.
 
-[ADR-0005](../../../docs/adr/0005-b2-behind-storage-adapter.md) puts the provider behind a
+[ADR-0005](../../../internal/adr/0005-b2-behind-storage-adapter.md) puts the provider behind a
 deliberately tiny interface. This module is that interface, plus the one implementation we
 ship (S3-compatible, which is how Backblaze B2 is reached and how RustFS stands in for it in
-CI — [ADR-0019](../../../docs/adr/0019-rustfs-as-s3-test-double.md)).
+CI — [ADR-0019](../../../internal/adr/0019-rustfs-as-s3-test-double.md)).
 
 Three decisions here are worth stating, because each of them is a place where a plausible
 simplification causes data loss:
 
 1. **An existing object with different content is never overwritten.** Silently replacing an
    object is how the only good copy is lost. The adapter raises, the clip stays `PENDING`,
-   and a human decides ([INV-7](../../../docs/architecture/invariants.md)).
+   and a human decides ([INV-7](../../../internal/architecture/invariants.md)).
 2. **A verification we did not perform is never claimed.** `PutResult.verified_by` says
    exactly what was checked — `sha256`, `size`, or `none` — and `none` makes the uploader
    degrade rather than declare an unverified backup a backup (lld/04 §3 step 5).
@@ -230,7 +230,7 @@ class StorageAdapter(Protocol):
     """The provider-specific surface (cloud-object-layout §6).
 
     Anything larger than this would leak the provider into the uploader's logic and defeat
-    [ADR-0005](../../../docs/adr/0005-b2-behind-storage-adapter.md).
+    [ADR-0005](../../../internal/adr/0005-b2-behind-storage-adapter.md).
     """
 
     def put_object(
@@ -502,7 +502,7 @@ class S3StorageAdapter:
 
         1. `HEAD` first. An object already there with a matching checksum means the bytes
            need not be sent at all — this is the crash-between-PUT-and-record recovery
-           ([INV-7](../../../docs/architecture/invariants.md)).
+           ([INV-7](../../../internal/architecture/invariants.md)).
         2. If it is there with *unprovable* content, refuse. Never overwrite.
         3. Upload, then compare the provider's checksum when it gives us a comparable one.
         4. When it does not (multipart), fall back to size plus our own recorded metadata
@@ -626,7 +626,7 @@ class S3StorageAdapter:
     def list_objects(self, *, prefix: str, max_keys: int = 1000) -> Iterator[ObjectInfo]:
         """List objects. Reconciliation and restore only — never to decide what to delete.
 
-        `INV-10 <../../../../docs/architecture/invariants.md>` forbids acting on a listing.
+        `INV-10 <../../../../internal/architecture/invariants.md>` forbids acting on a listing.
         """
         token: str | None = None
         while True:

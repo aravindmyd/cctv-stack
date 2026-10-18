@@ -8,8 +8,7 @@ Frigate's Web UI — live view, playback, review browsing, exports — is served
 does not protect.
 
 The stack's own services are **not** affected either way: they talk to Frigate's
-internal port `5000`, which is exempt from auth by design and is never published
-([`frigate-integration.md` §2](../architecture/contracts/frigate-integration.md#2-authentication)).
+internal port `5000`, which is exempt from auth by design and is never published.
 Enabling the login cannot break clip creation or uploads.
 
 ---
@@ -39,7 +38,7 @@ frigate:
     enabled: true
 ```
 
-`config/cameras.yml` is the source of truth ([INV-3](../architecture/invariants.md));
+`config/cameras.yml` is the only place this is configured;
 `config/frigate/config.yml` is generated from it and any hand edit there is lost.
 
 ### 2. Regenerate and restart
@@ -112,9 +111,8 @@ working, not a hole, as long as `5000` stays unpublished.
 | Session length | 86400 s (24 h) | Refreshed while you use the UI; not projected by our generator |
 | JWT secret | generated on first start | Stored as `.jwt_secret` in Frigate's `/config`, i.e. `config/frigate/.jwt_secret` on the host |
 
-`.jwt_secret` is a credential: never commit it or paste it into an issue
-([INV-2](../architecture/invariants.md)). Deleting it invalidates every session
-and is not needed unless you suspect it leaked.
+`.jwt_secret` is a credential: never commit it or paste it into an issue. Deleting it
+invalidates every session and is not needed unless you suspect it leaked.
 
 ---
 
@@ -202,5 +200,3 @@ when the generator grows that support.
 
 - [`install.md`](install.md) — what the install verifies
 - [`rotate-credentials.md`](rotate-credentials.md) — camera and B2 credentials
-- [`../architecture/contracts/frigate-integration.md`](../architecture/contracts/frigate-integration.md#2-authentication) — why the internal port needs no credentials
-- [`../architecture/contracts/cameras-config-schema.md`](../architecture/contracts/cameras-config-schema.md) — the `frigate.auth` field

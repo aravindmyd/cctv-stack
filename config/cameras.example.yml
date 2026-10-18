@@ -1,4 +1,4 @@
-# Camera configuration — the single source of truth (INV-3).
+# Camera configuration — the only place cameras are defined.
 #
 #   cp config/cameras.example.yml config/cameras.yml
 #
@@ -19,11 +19,11 @@ site:
   location: home
 
   # Never guessed from the host. A container's TZ is easy to get wrong, and wrong here means
-  # clips filed under the wrong hour (ADR-0017).
+  # clips filed under the wrong hour.
   timezone: Asia/Kolkata
 
 # Frigate retains *its own* footage for this long. That window is the clip-worker's recovery
-# budget (INV-9): if the worker is down longer than the shortest window, the footage it needs
+# budget: if the worker is down longer than the shortest window, the footage it needs
 # is already gone and no retry can recover it. The generator refuses to emit a shorter one
 # without an explicit override.
 min_headroom_days: 2
@@ -54,7 +54,7 @@ defaults:
 
   clip:
     # How much footage either side of the activity the clip includes. Ours alone — Frigate
-    # has no equivalent, which is why we cut the range ourselves (ADR-0015).
+    # has no equivalent, which is why we cut the range ourselves.
     pre_roll_s: 5
     post_roll_s: 10
 

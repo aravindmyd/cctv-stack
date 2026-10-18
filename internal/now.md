@@ -6,30 +6,33 @@ Living issues, known gaps, and things that are broken right now.
 
 ## 1. Port-binding tests fail in sandbox
 
-**Impact:** 47 tests refuse to run locally when using the macOS seatbelt sandbox (ThreadingHTTPServer cannot bind).
+**Impact:** the HTTP tests in `tests/test_frigate.py` and `tests/test_health.py` cannot bind a
+listener under the macOS seatbelt sandbox (`ThreadingHTTPServer` is blocked).
 
-**What fails**
-- `tests/test_frigate.py` — all 36 tests
-- `tests/test_health.py` — all 11 tests
+**Root cause:** the sandbox does not permit the Python `http.server` module to bind to
+ephemeral ports.
 
-**Root cause:** The sandbox does not permit the Python `http.server` module to bind to ephemeral ports.
+**Fix:** allow `sandbox.network.allowLocalBinding: true` in the sandboxing harness so it can
+start listener sockets.
 
-**Fix:** Allow `sandbox.network.allowLocalBinding: true` in the Claude Code settings so the harness can start listener sockets.
-
-**Status:** Not a code bug — tests pass in CI (no sandbox).
+**Status:** Not a code bug, and not observed on the normal path — `uv run pytest` runs the
+whole suite locally (748 passed, 18 skipped) — and CI has no sandbox.
 
 ---
 
 ## 2. Architecture docs awaiting owner review
 
-**Impact:** All 42 design documents are in `📐` (draft) state. No one has sign-off yet.
+**Impact:** the design record is written but never signed off, so code and docs are kept in
+step by review rather than by an approved baseline.
 
-**What needs review**
+**What needs review** (38 documents)
 - `architecture/hld.md` — system architecture
-- `architecture/invariants.md` — 12 hard rules
-- 6 contract documents
-- 9 LLDs
-- 7 runbooks
+- `architecture/invariants.md` — the hard rules
+- 6 contracts in `architecture/contracts/`
+- 10 LLDs in `architecture/lld/` (`00`–`09`)
+- 20 ADRs in `adr/` — 0001–0019 Accepted, 0020 Proposed
+
+The runbooks are no longer internal documents: they are published pages under `docs/`.
 
 **Status:** Written, waiting for the project owner to review.
 
@@ -41,39 +44,35 @@ Living issues, known gaps, and things that are broken right now.
 
 | Milestone | What's missing | Target |
 |---|---|---|
-| M4 (cloud retention) | Cloud retention, reconciliation, housekeeping, force-delete, single-instance lock | After J1 certified |
+| M4 (retention) | J1 local retention is built and runs as `cctv-cleanup`; missing: `force-delete` (M4.13), the single-instance lock (M4.14), then cloud retention (J2), reconciliation (J3) and housekeeping (J4) | M4.13/14 open |
 | M5 (status page) | Aggregate status page and alerting | After M4 |
 | M6 (installer) | One-command client install, signed bundles, detection | After M5 |
 | M7 (backup) | Backup, restore, upgrade | After M6 |
 
 ---
 
-## 4. Working tree has uncommitted changes
+## 4. No 0.3.1 yet
 
-The following files are modified but not committed:
+Two defects are fixed in the tree but unreleased, so the published site works around them:
 
-- `src/cctv/config.py`
-- `src/cctv/config_cli.py`
-- `tests/test_config.py`
-- `tests/test_config_cli.py`
-- `config/cameras.example.yml`
-- `internal/architecture/contracts/cameras-config-schema.md`
-- `internal/architecture/contracts/frigate-integration.md`
-- `docs/index.md`
-- `docs/install.md`
-- `docs/rotate-credentials.md`
-- `docs/frigate-ui.md` (new, untracked)
+- `cctv-config validate` exits **1** on an invalid config, while M6.5 and [INV-11](architecture/invariants.md)
+  require **78**.
+- The published `0.3.0` image predates the top-level `frigate:` key in `cameras.yml` and
+  rejects the current `config/cameras.example.yml`, so `docs/install.md` pins `:edge` rather
+  than a version.
 
-These are active working changes, not release-ready.
+Cutting `0.3.1` closes both.
 
 ---
 
 ## Open questions
 
-Some items from `plans/open-questions.md` remain:
+Only one question is still live for the next milestone:
 
-- OQ-1: Project name for the Python package (already `cctv-stack` in pyproject.toml)
-- OQ-2: Licence (Apache-2.0 in LICENSE)
-- OQ-3: Monitoring tool (external — Uptime Kuma per ADR-0010)
-- OQ-10: Recording retention budget (answered by running the probe)
-- OQ-16: Pre/post-roll defaults (answered by running the probe)
+- OQ-3: monitoring tool — Gatus is recommended for M5, for the reason recorded in
+  [ADR-0010](adr/0010-external-monitoring-tool.md).
+
+The rest should be removed from `.private/plans/open-questions.md`: OQ-1 (the name is
+`cctv-stack`, published at `github.com/aravindmyd/cctv-stack`), OQ-2 (Apache-2.0 in
+`LICENSE`), OQ-10 and OQ-16 (answered by measurement and recorded in
+[ADR-0015](adr/0015-clip-boundaries-and-padding.md)).

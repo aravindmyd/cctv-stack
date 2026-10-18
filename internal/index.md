@@ -27,7 +27,8 @@ nothing from this directory. A new agent should start with [`../AGENTS.md`](../A
 | Current problems | 📐 — [`now.md`](now.md) |
 
 The design set is complete: 4 entry points, 1 HLD, 1 invariant list, 6 contracts,
-9 LLDs, 20 ADRs, and 7 runbooks.
+10 LLDs, and 20 ADRs. The runbooks are published pages under `docs/`, not internal
+documents.
 
 **What is built** (`src/cctv/`, entry points `cctv-clip-worker`, `cctv-config`,
 `cctv-uploader`, `cctv-cleanup`): a review becomes a file at the canonical path, the
@@ -44,9 +45,9 @@ backup/restore/upgrade (M7). Nothing is deleted without a successful upload, so
 spike/ in the repo root is still a throwaway verification harness for M1, not product code,
 and goes once M1's `VERIFY` items are replaced with measurements.
 
-Only two open questions touch M1, and both are answered by running the probe: **OQ-10**
-(recording retention budget) and **OQ-16** (pre/post-roll defaults). The rest — name
-(OQ-1), licence (OQ-2), monitoring tool (OQ-3) — block later milestones only.
+No open question blocks implementation today. Only **OQ-3** (monitoring tool) is still
+live, and it affects M5 alone; the name (OQ-1), licence (OQ-2), recording-retention
+budget (OQ-10) and pre/post-roll defaults (OQ-16) are settled.
 
 ---
 

@@ -6,7 +6,7 @@
 - **Related:** [`lld/07`](../architecture/lld/07-installer-and-host-profiles.md),
   [`lld/09`](../architecture/lld/09-upgrade-and-versioning.md),
   [ADR-0014](0014-pinned-image-digests.md), [ADR-0018](0018-uv-as-toolchain.md),
-  [`plans/packaging.md`](../plans/packaging.md)
+  [`plans/packaging.md`](../plans/packaging.md) (moved to `.private/plans/`)
 
 ---
 

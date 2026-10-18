@@ -5,6 +5,7 @@ edit_uri: edit/feat/v1/docs/
 
 nav:
   - Home: index.md
+  - Now: now.md
   - Product:
     - Overview: prd.md
   - Architecture:
@@ -59,6 +60,7 @@ nav:
     - Disaster recovery: runbooks/disaster-recovery.md
     - Clip boundaries: runbooks/clip-boundaries.md
   - Glossary: glossary.md
+  - Templates: adr/0000-template.md
 
 theme:
   name: material

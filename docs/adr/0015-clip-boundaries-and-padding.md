@@ -10,7 +10,7 @@
 ## Confirmed by measurement
 
 Probed against Frigate **0.18.0-77a66e7** on 2026-09-12. Full evidence in
-[`spike/RESULTS.md`](../../spike/RESULTS.md).
+[`spike/RESULTS.md`](../../spike/RESULTS.md) (in the repo root).
 
 | Claim in this ADR | Measured | Verdict |
 |---|---|---|

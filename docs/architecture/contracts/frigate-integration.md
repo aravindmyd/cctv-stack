@@ -87,7 +87,7 @@ be limited"*.
 |---|---|
 | Human access | `8971` is published on loopback only, HTTPS only. Frigate's own login is **opt-in**: `frigate.auth.enabled` in `cameras.yml` is projected to `auth.enabled`. Default `false` |
 | Installer | Does not create a service user at all. Simpler, and one fewer secret ([INV-2](../invariants.md)) |
-| Operator password | With the login enabled, Frigate generates the admin password on first start and prints it to the log; change it in **Settings → Users**. `auth.reset_admin_password: true` regenerates a forgotten one (a transient hand edit to the generated file; [`runbooks/frigate-authentication.md`](../runbooks/frigate-authentication.md)) |
+| Operator password | With the login enabled, Frigate generates the admin password on first start and prints it to the log; change it in **Settings → Users**. `auth.reset_admin_password: true` regenerates a forgotten one (a transient hand edit to the generated file; [`runbooks/frigate-authentication.md`](../../runbooks/frigate-authentication.md)) |
 | Auth posture | With the login **off**, the only thing protecting the UI is that it is bound to `127.0.0.1` and that `5000` is never published. With it **on**, `8971` requires a JWT. The internal port is exempt either way, so our services are unaffected |
 | Hardened deployments | `FRIGATE_API_BASE` is configurable, so an operator wanting defence in depth can point at an authenticated endpoint instead. One config value, no code change |
 | Failure mode | `401`/`403` from the internal port means the base URL is misconfigured, not that a token expired — a clearer signal |
@@ -98,7 +98,7 @@ be limited"*.
 > `cameras.yml` (`frigate.auth.enabled`) and can be enabled without hand-editing a
 > generated file. It stays **off by default**: turning it on changes first-start behaviour
 > everywhere, and the only place the generated password appears is Frigate's log. A site
-> that wants the login opts in; [`runbooks/frigate-authentication.md`](../runbooks/frigate-authentication.md)
+> that wants the login opts in; [`runbooks/frigate-authentication.md`](../../runbooks/frigate-authentication.md)
 > is the procedure.
 
 > **RESOLVED (M1).** Verified against Frigate `0.18.0-77a66e7`: `/config`, `/stats` and
@@ -333,7 +333,7 @@ change Frigate's grouping. See [`cameras-config-schema.md`](cameras-config-schem
 
 > **MEASURED 2026-09-13** — Frigate 0.18.0-77a66e7, `TZ=Asia/Kolkata`, default cutoffs,
 > driven through the manual-event API so the review maintainer ran its normal path. Method
-> and limitations: [`dev-synthetic/`](../../../dev-synthetic/README.md).
+> and limitations: [`dev-synthetic/`](../../dev-synthetic/README.md).
 >
 > | Question | Result |
 > |---|---|
@@ -383,7 +383,7 @@ change Frigate's grouping. See [`cameras-config-schema.md`](cameras-config-schem
 The first measurement drove everything through the manual-event API, which cannot answer
 the stationary-subject question and could not confirm the message types. The second run
 replaces the test pattern with **real footage containing real people**
-([`dev-synthetic/fixture-from-video.sh`](../../../dev-synthetic/fixture-from-video.sh)), so
+([`dev-synthetic/fixture-from-video.sh`](../../dev-synthetic/fixture-from-video.sh)), so
 Frigate runs its own path end to end: ffmpeg → detector → events → review maintainer. No
 API is involved at any point.
 
@@ -743,6 +743,6 @@ recorded here, because a wrong assumption here invalidates the LLD.
 
 **Still outstanding, and why:** the items above that need a completed *event* were skipped
 because the probe config disables detection for speed and determinism. Re-run the probe
-with detection enabled (see [`spike/README.md`](../../spike/README.md)) — or simply walk
+with detection enabled (see [`spike/README.md`](../../spike/README.md) (in the repo root)) — or simply walk
 past a camera — to cover `retain`/`unretain`, the event-scoped endpoint, and the
 `frigate/events` payload.

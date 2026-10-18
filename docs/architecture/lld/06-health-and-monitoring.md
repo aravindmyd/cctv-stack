@@ -235,7 +235,7 @@ escalation in the monitoring tool handles.
 ### 6.2 Tool choice
 
 > **Open question, with a recommendation.** See
-> [`plans/open-questions.md`](../../plans/open-questions.md#oq-3-monitoring-tool).
+> [`plans/open-questions.md`](../../plans/open-questions.md#oq-3-monitoring-tool) (moved to `.private/plans/`).
 
 | | Gatus | Uptime Kuma |
 |---|---|---|

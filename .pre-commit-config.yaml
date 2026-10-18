@@ -38,3 +38,14 @@ repos:
       - id: ruff
         args: ["--fix"]
       - id: ruff-format
+
+  - repo: local
+    hooks:
+      - id: mkdocs
+        name: mkdocs build
+        entry: uv run mkdocs build --strict --site-dir /tmp/mkdocs-tmp
+        language: system
+        pass_filenames: false
+        files: '\.md$'
+        exclude: '^\.private/'
+        require_serial: true

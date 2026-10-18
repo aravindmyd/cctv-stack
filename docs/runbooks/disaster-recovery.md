@@ -34,9 +34,8 @@ Do that now, and again after any configuration change.
 | The B2 bucket | ⚠️ | Provider-side; enable bucket replication if it matters |
 
 **The honest summary:** you get your configuration and your event clips back. You do not
-get continuous recordings from before the disaster, and that is an accepted trade
-(PRD §14). If continuous footage matters that much to you, back up `data/media/`
-separately.
+get continuous recordings from before the disaster, and that is an accepted trade. If
+continuous footage matters that much to you, back up `data/media/` separately.
 
 ---
 
@@ -280,7 +279,7 @@ Write down, in your own words, what was missing. Then fix it:
 
 | If… | Then |
 |---|---|
-| You had no backup | Turn on the backup timer. See OQ-7 (tracked in `.private/plans/open-questions.md`, not in docs) |
+| You had no backup | Turn on the backup timer |
 | The backup was stale | Check `/status` → backup freshness. It should be a health check you can see |
 | You did not know your B2 key | Store it in a password manager, not only in `.env` |
 | You did not know which cameras existed | `cameras.yml` should be in the config backup. Verify it is |

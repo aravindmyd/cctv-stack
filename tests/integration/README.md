@@ -4,7 +4,7 @@ Live tests that need a **real S3-compatible endpoint**. They exist because the u
 drives an in-process `FakeAdapter`: it can prove what we do with what a provider says, but
 not that a provider says it, that concurrent claims survive real HTTP, or that a container
 cannot write to a read-only mount. Those are exactly the M3 exit criteria that were still
-open (`docs/plans/milestones.md`).
+open (`.private/plans/milestones.md`).
 
 ```text
 tests/integration/

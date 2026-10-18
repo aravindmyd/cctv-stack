@@ -1,6 +1,7 @@
 """Reading what `ffprobe` says about a clip.
 
-The output of this module is the evidence for [INV-14](../../../docs/architecture/invariants.md).
+The output of this module is the evidence for INV-14
+(../../../internal/architecture/invariants.md).
 Without it, "are the clips right?" is an opinion; with it, it is a query against the
 `clips` table's quality columns.
 
@@ -16,7 +17,7 @@ So a threshold that looks reasonable — say 2.0 s — flags nearly every health
 field is still recorded, because the data is real and a future detector may want it, but
 **truncation is detected by coverage, not by gaps.**
 
-See [ADR-0015](../../../docs/adr/0015-clip-boundaries-and-padding.md) for the three
+See [ADR-0015](../../../internal/adr/0015-clip-boundaries-and-padding.md) for the three
 candidate replacements, the preferred one being to read Frigate's own `recordings` table
 rather than inferring anything from the media.
 """

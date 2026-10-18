@@ -13,7 +13,7 @@ orchestration has nothing subtle left in it:
 
 2. **Whether it is good enough.** A truncated clip, a clip with a hole, and a perfect clip
    are all valid MP4s that upload successfully. Telling them apart is what
-   [INV-14](../../../docs/architecture/invariants.md) requires, and it is why these
+   [INV-14](../../../internal/architecture/invariants.md) requires, and it is why these
    decisions are pure functions with names rather than a chain of `if`s in a worker loop.
 
 **A short clip is never discarded.** Retrying improves the outcome; discarding cannot. When
@@ -86,7 +86,7 @@ class FetchPlan:
 
     Asymmetric on purpose: `pre_roll_s` and `post_roll_s` differ, so the symmetric
     `?padding=` on Frigate's review endpoint cannot express this — hence the range
-    endpoint ([ADR-0015](../../../docs/adr/0015-clip-boundaries-and-padding.md)).
+    endpoint ([ADR-0015](../../../internal/adr/0015-clip-boundaries-and-padding.md)).
     """
 
     review_id: str

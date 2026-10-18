@@ -7,7 +7,7 @@ conflict refusal, the delete confirmation, and the versioned-delete trap are all
 a running server, not about our double.
 
 > **These results are evidence about the test double, not about Backblaze B2.** RustFS is
-> S3-compatible, not B2. `docs/plans/backlog.md` §1.9 stays open until the same measurement
+> S3-compatible, not B2. `.private/plans/backlog.md` §1.9 stays open until the same measurement
 > is taken against the real provider; the value of running it here is that a *broken code
 > path* now fails loudly before anyone spends money on egress.
 """

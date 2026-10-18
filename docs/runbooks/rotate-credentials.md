@@ -15,7 +15,7 @@ Never revoke first. Every rotation below follows the same four steps:
 ```text
 1. Create the new credential alongside the old
 2. Update .env
-3. Restart and VERIFY it works
+3. Restart and check that it works
 4. Only then revoke the old credential
 ```
 
@@ -133,10 +133,9 @@ docker compose exec frigate ffprobe -v error -rtsp_transport tcp \
 
 **When:** the service account is compromised, or during a Frigate major upgrade.
 
-> **Superseded by M1.** The pipeline no longer authenticates: it uses Frigate's internal
-> port `5000`, which is exempt from auth by design
-> ([`frigate-integration.md` §2](../architecture/contracts/frigate-integration.md#2-authentication)).
-> The steps below describe the earlier design and are kept for the upgrade path only.
+> **This section is historical.** The pipeline no longer authenticates: it uses Frigate's
+> internal port `5000`, which is exempt from auth by design. The steps below describe the
+> earlier design and are kept for the upgrade path only.
 > For the *human* UI login — enable, recover, disable — see
 > [`frigate-authentication.md`](frigate-authentication.md).
 
@@ -153,8 +152,8 @@ docker compose exec frigate python3 -m frigate --create-user
 
 ### 3.2 Log in and capture the token
 
-The exact mechanism depends on the pinned Frigate version — see the `VERIFY` note in
-[`contracts/frigate-integration.md`](../architecture/contracts/frigate-integration.md#2-authentication).
+The exact mechanism depends on the pinned Frigate version — check its API documentation
+for the endpoint in the version you are running.
 
 ```bash
 curl -s -X POST http://localhost:5000/api/login \

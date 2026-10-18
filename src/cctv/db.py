@@ -2,7 +2,7 @@
 
 Services never call each other. They coordinate exclusively through these tables, which
 is what makes any one of them being down a survivable condition rather than a cascading
-failure. See [`docs/architecture/lld/03-state-store.md`] and the schema contract.
+failure. See [`internal/architecture/lld/03-state-store.md`] and the schema contract.
 
 Three rules from that LLD are enforced here rather than left to discipline:
 

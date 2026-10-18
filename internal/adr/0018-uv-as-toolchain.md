@@ -86,7 +86,7 @@ Supporting decisions:
 
 - `.venv/`, `.ruff_cache/` and `.pytest_cache/` are gitignored; `uv.lock` deliberately is
   not.
-- Nothing in `docs/architecture/` other than LLD 00 §2.2 and LLD 07 mentions the toolchain,
+- Nothing in `internal/architecture/` other than LLD 00 §2.2 and LLD 07 mentions the toolchain,
   so this decision does not ripple. It should stay that way: no design document should
   depend on which tool authors happen to use.
 

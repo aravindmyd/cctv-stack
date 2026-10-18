@@ -5,7 +5,7 @@ status-collector — and its job is to make the invariants *structural* rather t
 aspirational. If there is literally one implementation of a rule, the rule cannot
 drift between components.
 
-See `docs/architecture/lld/00-overview.md` §2 for the module map and the invariants
+See `internal/architecture/lld/00-overview.md` §2 for the module map and the invariants
 each module enforces.
 
 Nothing in this package reaches for the network at import time. It is tested without

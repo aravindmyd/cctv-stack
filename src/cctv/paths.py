@@ -3,8 +3,8 @@
 Every component that needs a clip's path calls this module. Nothing re-implements it —
 because the moment cleanup and clip-worker disagree about a path, cleanup stops being
 able to find clips, and it fails *silently*, by not deleting. That is the failure
-[INV-5](../../../docs/architecture/invariants.md) exists to prevent, which is why
-[ADR-0006](../../../docs/adr/0006-canonical-clip-layout.md) puts this in one place.
+[INV-5](../../../internal/architecture/invariants.md) exists to prevent, which is why
+[ADR-0006](../../../internal/adr/0006-canonical-clip-layout.md) puts this in one place.
 
 ```text
 local:   data/clips/<camera>/YYYY/MM/DD/HH-MM-SS.mp4
@@ -28,7 +28,7 @@ exactly why the database stores the instant rather than re-deriving it from file
 **A path can be taken, and that is not knowable from the arguments.** Two reviews on one
 camera can start in the same second. So there is no single "the" path function: there is a
 *primary* candidate and a *colliding* candidate, both pure, and the writer tries them in
-order ([ADR-0006](../../../docs/adr/0006-canonical-clip-layout.md)). The colliding form
+order ([ADR-0006](../../../internal/adr/0006-canonical-clip-layout.md)). The colliding form
 appends a deterministic tail of the review id — deterministic being the whole point, so
 the collision is still a pure function of the metadata.
 """
@@ -141,7 +141,7 @@ def collision_suffix(review_id: str) -> str:
     id's overall format. An id that is too short, or whose tail is not alphanumeric,
     falls back to a hash rather than to a counter — a counter would be stateful, and a
     stateful suffix is not derivable from metadata, which would break
-    [INV-5](../../../docs/architecture/invariants.md).
+    [INV-5](../../../internal/architecture/invariants.md).
     """
     if not isinstance(review_id, str) or not review_id:
         raise PathError("A collision suffix requires a non-empty review id.")
@@ -178,7 +178,7 @@ def candidate_relpaths(
 
     Exposed as one function so that the collision protocol lives in a single place. A
     caller that builds the colliding form itself has re-implemented part of this
-    module, which is what [INV-5](../../../docs/architecture/invariants.md) forbids.
+    module, which is what [INV-5](../../../internal/architecture/invariants.md) forbids.
     """
     return (
         primary_relpath(camera, start, zone),
@@ -201,7 +201,7 @@ def clip_cloud_key(location: str, relpath: PurePosixPath) -> str:
     Deliberately a concatenation rather than a parallel scheme: if the key were built
     independently it could drift from the path, and then restore would need a mapping
     layer that can itself drift. As it is, recovery is "strip the prefix, write the
-    file" ([ADR-0006](../../../docs/adr/0006-canonical-clip-layout.md)).
+    file" ([ADR-0006](../../../internal/adr/0006-canonical-clip-layout.md)).
     """
     location = validate_location(location)
     return f"{location}/{CLOUD_CLIPS_PREFIX}/{_as_posix(relpath)}"

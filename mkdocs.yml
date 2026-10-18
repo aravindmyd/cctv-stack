@@ -5,58 +5,16 @@ repo_url: https://github.com/aravindmyd/cctv-stack
 # there too — a feature-branch link rots the moment it is merged.
 edit_uri: edit/master/docs/
 
+# Only user-facing pages belong in `docs/`. The design record (architecture, contracts,
+# LLDs, ADRs, PRD) lives in `internal/`, outside `docs_dir`, so it is never built or
+# published here — see CONTRIBUTING.md.
 nav:
   - Home: index.md
-  - Now: now.md
-  - Product:
-    - Overview: prd.md
-  - Architecture:
-    - High-Level Design: architecture/hld.md
-    - Invariants: architecture/invariants.md
-    - Contracts:
-      - Overview: architecture/contracts/cameras-config-schema.md
-      - Cameras Config: architecture/contracts/cameras-config-schema.md
-      - Frigate Integration: architecture/contracts/frigate-integration.md
-      - Service Contracts: architecture/contracts/service-contracts.md
-      - On-Disk Layout: architecture/contracts/on-disk-layout.md
-      - Database Schema: architecture/contracts/database-schema.md
-      - Cloud Object Layout: architecture/contracts/cloud-object-layout.md
-  - Low-Level Design:
-    - Overview: architecture/lld/00-overview.md
-    - Config Model: architecture/lld/01-config-model.md
-    - Clip Worker: architecture/lld/02-clip-worker.md
-    - State Store: architecture/lld/03-state-store.md
-    - Uploader: architecture/lld/04-uploader.md
-    - Cleanup: architecture/lld/05-cleanup.md
-    - Health & Monitoring: architecture/lld/06-health-and-monitoring.md
-    - Installer & Host Profiles: architecture/lld/07-installer-and-host-profiles.md
-    - Backup & Restore: architecture/lld/08-backup-and-restore.md
-    - Upgrade & Versioning: architecture/lld/09-upgrade-and-versioning.md
-  - Decisions:
-    - 0001 — Frigate as detection engine: adr/0001-frigate-as-detection-engine.md
-    - 0002 — Independent per-site deployments: adr/0002-independent-per-site-deployments.md
-    - 0003 — cameras.yml single source of truth: adr/0003-cameras-yml-single-source-of-truth.md
-    - 0004 — SQLite for state: adr/0004-sqlite-for-state.md
-    - 0005 — B2 behind storage adapter: adr/0005-b2-behind-storage-adapter.md
-    - 0006 — Canonical clip layout: adr/0006-canonical-clip-layout.md
-    - 0007 — MQTT over filesystem watching: adr/0007-mqtt-api-over-filesystem-watching.md
-    - 0008 — Upload state machine: adr/0008-upload-state-machine.md
-    - 0009 — Cleanup safety invariant: adr/0009-cleanup-safety-invariant.md
-    - 0010 — External monitoring tool: adr/0010-external-monitoring-tool.md
-    - 0011 — Python FastAPI services: adr/0011-python-fastapi-services.md
-    - 0012 — Host profile detection: adr/0012-host-profile-detection.md
-    - 0013 — Compose profiles: adr/0013-compose-profiles.md
-    - 0014 — Pinned image digests: adr/0014-pinned-image-digests.md
-    - 0015 — Clip boundaries and padding: adr/0015-clip-boundaries-and-padding.md
-    - 0016 — Clip per review item: adr/0016-clip-per-review-item.md
-    - 0017 — Time handling: adr/0017-time-handling.md
-    - 0018 — uv as toolchain: adr/0018-uv-as-toolchain.md
-    - 0019 — RustFS as S3 test double: adr/0019-rustfs-as-s3-test-double.md
-    - 0020 — Release artifacts and delivery: adr/0020-release-artifacts-and-delivery-modes.md
-  - Runbooks:
+  - Getting started:
     - Install: runbooks/install.md
-    - Add a camera: runbooks/add-a-camera.md
-    - Frigate authentication: runbooks/frigate-authentication.md
+    - Add or change a camera: runbooks/add-a-camera.md
+    - Frigate UI authentication: runbooks/frigate-authentication.md
+  - Operating:
     - Recover failed uploads: runbooks/recover-failed-uploads.md
     - Rotate credentials: runbooks/rotate-credentials.md
     - Disaster recovery: runbooks/disaster-recovery.md

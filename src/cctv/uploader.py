@@ -21,11 +21,11 @@ Four rules from the design carry real weight here:
   `DEGRADED` (`UPLOAD_UNVERIFIED`) rather than being rounded up to success, because
   `UPLOADED` is what tells cleanup a local file may be deleted.
 * **Never delete, move or modify a file under `clips/`.** The compose mount makes that
-  structural ([INV-1](../../../docs/architecture/invariants.md)); this module does not even
+  structural ([INV-1](../../../internal/architecture/invariants.md)); this module does not even
   have a code path that could.
 * **An unconfigured deployment is `DISABLED`, not broken.** With no bucket set the service
   starts, reports `DISABLED`, and does no work, so a local-only install is a supported
-  choice rather than a restart loop ([INV-6](../../../docs/architecture/invariants.md)).
+  choice rather than a restart loop ([INV-6](../../../internal/architecture/invariants.md)).
 """
 
 from __future__ import annotations
@@ -770,7 +770,7 @@ class UploaderHealth:
 
         The distinction is the point: the operator chose not to configure cloud backup, and
         a status page that reports `HEALTHY` for a component doing nothing would be a lie
-        ([INV-6](../../../docs/architecture/invariants.md)).
+        ([INV-6](../../../internal/architecture/invariants.md)).
         """
         detail = "no storage bucket is configured, so nothing is backed up"
         names = (

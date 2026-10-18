@@ -15,8 +15,8 @@ open tmp  →  write  →  flush  →  fsync(file)  →  close  →  rename  →
 entry, so without the final `fsync` on the directory a power cut can leave the file
 present with its old name — or absent entirely — even though its contents were durable.
 
-[INV-4](../../../docs/architecture/invariants.md) puts all state under the host data
-directory, and [INV-1](../../../docs/architecture/invariants.md) means an interrupted
+[INV-4](../../../internal/architecture/invariants.md) puts all state under the host data
+directory, and [INV-1](../../../internal/architecture/invariants.md) means an interrupted
 materialisation is a retry rather than a loss, which only holds if a partial file cannot
 be mistaken for a complete one.
 """
@@ -118,7 +118,7 @@ def promote(scratch: Path, target: Path, *, mode: int = 0o644) -> None:
     """Publish a finished scratch file as `target`.
 
     Exists because a clip may be fetched more than once and the *best* attempt wins, not
-    the last one ([INV-14](../../../docs/architecture/invariants.md)). Retrying straight
+    the last one ([INV-14](../../../internal/architecture/invariants.md)). Retrying straight
     onto the canonical path would let a worse second attempt overwrite a better first one,
     which is the opposite of retry-then-keep-best. So each attempt lands on its own scratch
     path and only the winner is promoted — and it still appears in the tree solely via a

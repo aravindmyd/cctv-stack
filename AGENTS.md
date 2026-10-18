@@ -1,7 +1,7 @@
 # AGENTS.md
 
 Instructions for AI agents **and** humans who are new to this repository.
-Read this file first, then [`docs/index.md`](docs/index.md).
+Read this file first, then [`internal/index.md`](internal/index.md) — the internal map and reading order.
 
 ---
 
@@ -10,9 +10,9 @@ Read this file first, then [`docs/index.md`](docs/index.md).
 | | |
 |---|---|
 | **Phase** | **BUILDING — v0.3** |
-| **Implemented** | Detect → materialise at the canonical clip path → **upload to Backblaze B2, exactly once** → installable. M3 is certified against a live S3-compatible server. M4's **J1 local retention** runs as the `cleanup` service, with a health surface on 8083. Lint clean; 717 tests green, 19 skipped (18 need a live S3 endpoint, 1 needs the Docker daemon). |
-| **Not implemented** | M4's cloud retention (J2), reconciliation (J3), housekeeping (J4), `force-delete` and the single-instance lock; the aggregate status page and alerting (M5); backup, upgrade (M7). One thing is deleted today — a clip whose upload is terminal-success and that is past `retention.local_days` — see [`docs/plans/backlog.md`](docs/plans/backlog.md) for exactly what is deferred and why. |
-| **Authority** | Design docs in `docs/` are the source of truth. Code follows docs, not the other way round. |
+| **Implemented** | Detect → materialise at the canonical clip path → **upload to Backblaze B2, exactly once** → installable. M3 is certified against a live S3-compatible server. M4's **J1 local retention** runs as the `cleanup` service, with a health surface on 8083. Lint clean; 730 tests green, 18 skipped (they need a live S3 endpoint or the Docker daemon). |
+| **Not implemented** | M4's cloud retention (J2), reconciliation (J3), housekeeping (J4), `force-delete` and the single-instance lock; the aggregate status page and alerting (M5); backup, upgrade (M7). One thing is deleted today — a clip whose upload is terminal-success and that is past `retention.local_days` — see [`.private/plans/backlog.md`](.private/plans/backlog.md) for exactly what is deferred and why. |
+| **Authority** | Design docs in `internal/` are the source of truth. Code follows docs, not the other way round. `docs/` is the published user site and is not authoritative. |
 
 > **Where things stand.** `src/cctv/` is the shared library plus the three entry points:
 > `cctv-clip-worker` (reviews → clips), `cctv-config` (`cameras.yml` → Frigate's config) and
@@ -28,12 +28,12 @@ Read this file first, then [`docs/index.md`](docs/index.md).
 
 This repository is being designed as a *packaging-first* CCTV stack: a single
 deployable application that can be installed at any location by changing
-configuration only. See [`docs/prd.md`](docs/prd.md) for the original product
+configuration only. See [`internal/prd.md`](internal/prd.md) for the original product
 requirements.
 
-> **Rule:** No application code is written until the plan in `docs/` is approved.
-> If you are an agent asked to implement something that contradicts `docs/architecture/invariants.md`,
-> stop and raise it as an open question in `docs/plans/open-questions.md` instead.
+> **Rule:** No application code is written until the plan in `internal/` is approved.
+> If you are an agent asked to implement something that contradicts `internal/architecture/invariants.md`,
+> stop and raise it as an open question in `.private/plans/open-questions.md` instead.
 
 ---
 
@@ -62,25 +62,28 @@ cross-site data sharing, and no inbound connectivity requirement.
 cctv-stack/
 ├── AGENTS.md                  # ← you are here
 ├── README.md                  # human-facing entry point
-├── docs/
-│   ├── index.md               # documentation map + reading order
-│   ├── glossary.md            # shared vocabulary (read before writing)
+├── docs/                      # PUBLISHED site — user-facing only
+│   ├── index.md               # landing page: what it is, install, health
+│   ├── glossary.md            # shared vocabulary
+│   └── runbooks/              # operator procedures
+├── internal/                  # design authority — never published
+│   ├── index.md               # internal map + reading order
 │   ├── prd.md                 # product requirements (input, immutable)
+│   ├── now.md                 # current problems and known gaps
 │   ├── architecture/
 │   │   ├── hld.md             # high-level design
 │   │   ├── invariants.md      # hard rules that must never be broken
 │   │   ├── contracts/         # interfaces between components
 │   │   └── lld/               # low-level design, one file per component
-│   ├── adr/                   # architecture decision records
-│   ├── plans/                 # roadmap, milestones, open questions, risks
-│   └── runbooks/              # operator procedures
+│   └── adr/                   # architecture decision records
+├── .private/                  # gitignored planning notes (plans, backlog)
 ├── compose.yml                # (planned) deployment boundary
 ├── .env.example               # (planned) location configuration template
 ├── spike/                     # ⚠️ TEMPORARY — M1 verification harness, not product code
 │   ├── README.md              #    how to run it, and why it is throwaway
 │   ├── probe/probe.py         #    measures the contract's VERIFY items
 │   └── RESULTS.md             #    fill in, then delete the whole directory
-└── config/  services/  data/  # (planned) see docs/architecture/contracts/on-disk-layout.md
+└── config/  services/  data/  # (planned) see internal/architecture/contracts/on-disk-layout.md
 ```
 
 Paths marked *(planned)* do not exist yet. Do not create them speculatively.
@@ -89,19 +92,19 @@ Paths marked *(planned)* do not exist yet. Do not create them speculatively.
 
 ## 4. Required reading order
 
-1. [`docs/prd.md`](docs/prd.md) — what we were asked to build
+1. [`internal/prd.md`](internal/prd.md) — what we were asked to build
 2. [`docs/glossary.md`](docs/glossary.md) — vocabulary (Frigate's terms are subtle)
-3. [`docs/architecture/hld.md`](docs/architecture/hld.md) — how the system fits together
-4. [`docs/architecture/invariants.md`](docs/architecture/invariants.md) — what must never break
-5. [`docs/architecture/contracts/`](docs/architecture/contracts/) — exact interfaces
-6. The specific `docs/architecture/lld/*.md` for the component you are touching
-7. Relevant ADRs in [`docs/adr/`](docs/adr/) — *why* it is this way
+3. [`internal/architecture/hld.md`](internal/architecture/hld.md) — how the system fits together
+4. [`internal/architecture/invariants.md`](internal/architecture/invariants.md) — what must never break
+5. [`internal/architecture/contracts/`](internal/architecture/contracts/) — exact interfaces
+6. The specific `internal/architecture/lld/*.md` for the component you are touching
+7. Relevant ADRs in [`internal/adr/`](internal/adr/) — *why* it is this way
 
 ---
 
 ## 5. Hard invariants
 
-Full list and rationale: [`docs/architecture/invariants.md`](docs/architecture/invariants.md).
+Full list and rationale: [`internal/architecture/invariants.md`](internal/architecture/invariants.md).
 
 Summary of the non-negotiables:
 
@@ -133,7 +136,7 @@ Summary of the non-negotiables:
 - **Commit messages:** Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:`, `refactor:`).
   100-character signed-off provenance (`git commit -s --signoff`).
 - **Every non-obvious decision gets an ADR.** If you cannot find one, write one
-  using [`docs/adr/0000-template.md`](docs/adr/0000-template.md).
+  using [`internal/adr/0000-template.md`](internal/adr/0000-template.md).
 - **Docs are updated in the same change as the code.** A PR that changes behaviour
   without changing docs is incomplete.
 
@@ -146,16 +149,16 @@ specified in the linked design doc.
 
 | Command | Purpose | Status | Spec |
 |---|---|---|---|
-| `./install.sh` | Create the site config, validate it, start the stack, wait for Frigate | **built** (development version; M6 adds detection, the interview and full verification) | [`lld/07`](docs/architecture/lld/07-installer-and-host-profiles.md) |
-| `./update.sh` | Pull new version, migrate, recreate containers, verify | planned | [`lld/09`](docs/architecture/lld/09-upgrade-and-versioning.md) |
-| `./uninstall.sh` | Stop and remove containers, keep data | planned | [`lld/07`](docs/architecture/lld/07-installer-and-host-profiles.md) |
-| `./backup.sh` | Back up config + database + upload state | planned | [`lld/08`](docs/architecture/lld/08-backup-and-restore.md) |
-| `docker compose up -d` | Start the stack directly | planned | [`hld.md`](docs/architecture/hld.md) |
+| `./install.sh` | Create the site config, validate it, start the stack, wait for Frigate | **built** (development version; M6 adds detection, the interview and full verification) | [`lld/07`](internal/architecture/lld/07-installer-and-host-profiles.md) |
+| `./update.sh` | Pull new version, migrate, recreate containers, verify | planned | [`lld/09`](internal/architecture/lld/09-upgrade-and-versioning.md) |
+| `./uninstall.sh` | Stop and remove containers, keep data | planned | [`lld/07`](internal/architecture/lld/07-installer-and-host-profiles.md) |
+| `./backup.sh` | Back up config + database + upload state | planned | [`lld/08`](internal/architecture/lld/08-backup-and-restore.md) |
+| `docker compose up -d` | Start the stack directly | planned | [`hld.md`](internal/architecture/hld.md) |
 | `tests/integration/run.sh` | Run the live integration suite against RustFS (starts and stops it) | **built** | [`tests/integration/README.md`](tests/integration/README.md) |
 | `tests/e2e/run.sh` | Run the synthetic camera → Frigate review → canonical clip pipeline | **built** | [`tests/e2e/run.sh`](tests/e2e/run.sh) |
 | `scripts/doctor.sh` | Diagnose a broken installation | planned | [`runbooks/install.md`](docs/runbooks/install.md) |
 
-Client-site packaging is specified in [`docs/plans/packaging.md`](docs/plans/packaging.md):
+Client-site packaging is specified in [`.private/plans/packaging.md`](.private/plans/packaging.md):
 `install.sh` remains the on-host entry point, but a client receives a signed release
 bundle and a digest-pinned image rather than a git checkout. CI lives in
 [`.github/workflows/`](.github/workflows/): pre-commit, unit, live integration, the
@@ -165,9 +168,9 @@ synthetic e2e pipeline, and `publish.yml` (GHCR on every merge, PyPI on `v*` tag
 
 ## 8. How to change the design
 
-1. Check [`docs/plans/open-questions.md`](docs/plans/open-questions.md) — it may already be an open question.
+1. Check [`.private/plans/open-questions.md`](.private/plans/open-questions.md) — it may already be an open question.
 2. If it is a real decision with trade-offs, write an ADR **first**.
-3. Update the affected contract in `docs/architecture/contracts/`.
+3. Update the affected contract in `internal/architecture/contracts/`.
 4. Update the affected LLD.
 5. Only then write code.
 

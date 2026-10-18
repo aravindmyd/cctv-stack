@@ -1,11 +1,11 @@
 """Configuration: one source of truth, and everything else generated.
 
 `config/cameras.yml` is the single place a camera is defined
-([INV-3](../../../docs/architecture/invariants.md)). Frigate's config, the monitoring
+([INV-3](../../../internal/architecture/invariants.md)). Frigate's config, the monitoring
 config, and the notify config are all *generated* from it — deterministically, same input
 to byte-identical output. A hand edit to a generated file is lost on the next install.
 
-The schema is [`docs/architecture/contracts/cameras-config-schema.md`]. Four rules from
+The schema is [`internal/architecture/contracts/cameras-config-schema.md`]. Four rules from
 there are worth stating because they are the ones that surprise people:
 
 1. **Unknown keys are a hard error.** A typo that silently does nothing is worse than a
@@ -59,7 +59,7 @@ SEVERITIES = frozenset({"alert", "detection"})
 
 #: Below this many days of Frigate-side recording, a clip-worker outage of the same
 #: length causes permanent loss, because the footage is gone before we fetch it
-#: ([INV-9](../../../docs/architecture/invariants.md)). The generator refuses to emit a
+#: ([INV-9](../../../internal/architecture/invariants.md)). The generator refuses to emit a
 #: shorter window without an explicit override.
 DEFAULT_MIN_HEADROOM_DAYS = 2
 
@@ -102,7 +102,7 @@ class RecordConfig:
 class ClipConfig:
     """Our clip shape. `pre_roll_s` and `post_roll_s` are ours alone; `visit_gap_s` is
     projected into Frigate because it defines what a visit *is*
-    ([ADR-0016](../../../docs/adr/0016-clip-per-review-item.md))."""
+    ([ADR-0016](../../../internal/adr/0016-clip-per-review-item.md))."""
 
     pre_roll_s: float = 5.0
     post_roll_s: float = 10.0
@@ -684,7 +684,7 @@ def to_frigate(config: CamerasConfig, *, allow_short_headroom: bool = False) -> 
 
     **Partial on purpose.** This emits what the design has actually settled — the review
     cutoff and Frigate-side `record:` retention. The parts that need the host profile
-    ([`lld/07`](../../../docs/architecture/lld/07-installer-and-host-profiles.md))
+    ([`lld/07`](../../../internal/architecture/lld/07-installer-and-host-profiles.md))
     — `ffmpeg` inputs and `hwaccel_args`, `detectors`, `model`, `objects.track` — land with
     LLD 07, because emitting them requires knowing which accelerator exists. A generator
     that guessed would be worse than one that is obviously incomplete.

@@ -222,7 +222,7 @@ cd cctv-stack
 
 The first run creates `.env` and `config/cameras.yml`; edit both and run it again. See
 [`docs/runbooks/install.md`](docs/runbooks/install.md) for the operator procedure and
-[`docs/plans/packaging.md`](docs/plans/packaging.md) for the signed client-site bundle.
+[`CONTRIBUTING.md`](CONTRIBUTING.md) for how releases are built and delivered.
 
 ## Compatibility
 
@@ -236,12 +236,14 @@ The first run creates `.env` and `config/cameras.yml`; edit both and run it agai
 
 ## Documentation
 
-- [`docs/index.md`](docs/index.md) — documentation map
-- [`docs/architecture/contracts/cameras-config-schema.md`](docs/architecture/contracts/cameras-config-schema.md) — every `cameras.yml` key
-- [`docs/architecture/contracts/service-contracts.md`](docs/architecture/contracts/service-contracts.md) — health, logging and exit codes
-- [`docs/runbooks/install.md`](docs/runbooks/install.md) — install and verify
-- [`CONTRIBUTING.md`](CONTRIBUTING.md) — architecture, development, CI and release process
-- [`docs/plans/packaging.md`](docs/plans/packaging.md) — client-site delivery
+Full documentation: **https://aravindmyd.github.io/cctv-stack/**
+
+- [Install](docs/runbooks/install.md) — install and verify
+- [Add or change a camera](docs/runbooks/add-a-camera.md) — a configuration change, not code
+- [Frigate UI authentication](docs/runbooks/frigate-authentication.md)
+- [Recover failed uploads](docs/runbooks/recover-failed-uploads.md)
+- [Glossary](docs/glossary.md) — the vocabulary these docs use
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — development, CI and release process
 
 ## License
 

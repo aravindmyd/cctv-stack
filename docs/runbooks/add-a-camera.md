@@ -3,8 +3,8 @@
 > **Status:** 🚧 Planned.
 > **Time:** 5 minutes.
 
-Adding a camera is a configuration change, not a code change. That is the whole point
-([ADR-0003](../adr/0003-cameras-yml-single-source-of-truth.md)).
+Adding a camera is a configuration change, not a code change. `config/cameras.yml` is the
+only place cameras are defined; Frigate's own config is generated from it.
 
 ---
 
@@ -125,9 +125,8 @@ Continuous recording is roughly 30× the storage of clip retention. Check
 ### Don't lower Frigate's recording window casually
 
 The generated `motion.days` is **not** arbitrary — it is the clip-worker's recovery
-budget if the pipeline is ever down ([INV-9](../adr/0009-cleanup-safety-invariant.md)).
-If the recording window is shorter than a pipeline outage, clips that were not yet
-copied are **gone permanently**.
+budget if the pipeline is ever down. If the recording window is shorter than a pipeline
+outage, clips that were not yet copied are **gone permanently**.
 
 Validation warns below 2 days. Heed it.
 
@@ -150,7 +149,7 @@ Then:
 ./update.sh --regenerate-config
 ```
 
-**Nothing is deleted.** This is deliberate ([INV-13](../architecture/invariants.md)):
+**Nothing is deleted.** This is deliberate:
 
 - Existing clips stay on disk and follow normal retention
 - Rows stay in the database, marked `retired_at`
@@ -227,5 +226,5 @@ cameras:
       labels: [person]                  # must be a subset of detect.objects
 ```
 
-Full schema and every validation rule:
-[`contracts/cameras-config-schema.md`](../architecture/contracts/cameras-config-schema.md).
+Every field, with its validation rules and defaults, is documented in
+[`config/cameras.example.yml`](https://github.com/aravindmyd/cctv-stack/blob/master/config/cameras.example.yml).

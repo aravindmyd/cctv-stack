@@ -57,8 +57,8 @@ The following files are modified but not committed:
 - `tests/test_config.py`
 - `tests/test_config_cli.py`
 - `config/cameras.example.yml`
-- `docs/architecture/contracts/cameras-config-schema.md`
-- `docs/architecture/contracts/frigate-integration.md`
+- `internal/architecture/contracts/cameras-config-schema.md`
+- `internal/architecture/contracts/frigate-integration.md`
 - `docs/index.md`
 - `docs/runbooks/install.md`
 - `docs/runbooks/rotate-credentials.md`

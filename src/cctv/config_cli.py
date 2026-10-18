@@ -1,6 +1,6 @@
 """`cctv-config` — validate our configuration, and generate Frigate's from it.
 
-[INV-3](../../../docs/architecture/invariants.md) says camera configuration exists in
+[INV-3](../../../internal/architecture/invariants.md) says camera configuration exists in
 exactly one place, `config/cameras.yml`, and that everything else is generated. This is the
 "everything else".
 
@@ -18,7 +18,7 @@ should find out before it is running, not after an outage.
 The generator emits a **generic/CPU host profile**: `ffmpeg` inputs from the local go2rtc
 restream, a CPU detector, detection resolution. Hardware acceleration profiles
 (`hwaccel_args`, Coral detectors, model selection) belong to
-[LLD 07](../../../docs/architecture/lld/07-installer-and-host-profiles.md) and are not
+[LLD 07](../../../internal/architecture/lld/07-installer-and-host-profiles.md) and are not
 guessed at here. A generated config that is obviously missing a profile is better than one
 that quietly picked the wrong one.
 

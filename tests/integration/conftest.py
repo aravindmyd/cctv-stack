@@ -1,5 +1,5 @@
 """Fixtures for the live integration suite — see `README.md` beside this file, and
-[`lld/00` §5](../../docs/architecture/lld/00-overview.md).
+[`lld/00` §5](../../internal/architecture/lld/00-overview.md).
 
 Everything that needs a provider is **skipped** unless an endpoint is configured, because
 the default `uv run pytest` has to stay green with no containers and no network. The runner

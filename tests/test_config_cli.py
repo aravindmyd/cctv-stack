@@ -1,6 +1,6 @@
 """Tests for `cctv-config` — validate our config, and generate Frigate's from it.
 
-[INV-3](../../docs/architecture/invariants.md) says camera configuration exists in exactly
+[INV-3](../../internal/architecture/invariants.md) says camera configuration exists in exactly
 one place and that everything else is generated, so the generated file is a *derived*
 artefact with two properties that matter more than its contents:
 

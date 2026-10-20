@@ -91,3 +91,84 @@ def test_every_line_of_env_example_is_a_comment_blank_or_a_setting() -> None:
         offenders.append(f"line {number}: {stripped}")
 
     assert not offenders, "not a comment, a blank line or KEY=value:\n" + "\n".join(offenders)
+
+
+# ---------------------------------------------------------------------------------------
+# The install guide has to agree with what the stack actually publishes
+# ---------------------------------------------------------------------------------------
+
+COMPOSE = ROOT / "compose.yml"
+INSTALL_GUIDE = DOCS / "install.md"
+README = ROOT / "README.md"
+
+#: `http://host:PORT` / `https://127.0.0.1:PORT` — a URL an operator could actually paste.
+HOST_URL = re.compile(r"https?://(?:127\.0\.0\.1|\d{1,3}(?:\.\d{1,3}){3}):(\d+)")
+
+
+#: Ports that legitimately appear in a URL in the docs but are not published by this stack.
+#: `5000` is Frigate's internal port: the pip path points at a Frigate the operator runs
+#: themselves, and we never publish it because Frigate treats requests on it as anonymous admin.
+UNPUBLISHED_BUT_DOCUMENTED = {5000}
+
+
+def _published_ports() -> set[int]:
+    """The *host* ports the compose file publishes, with the env default resolved.
+
+    `"${GATUS_PORT:-3001}:8080"` publishes 3001 on the host and forwards to 8080 in the
+    container, so the host port is the second-to-last element. Parsed rather than hard-coded,
+    because the whole point is to notice when `compose.yml` and the guide drift apart.
+    """
+    document = yaml.safe_load(COMPOSE.read_text(encoding="utf-8")) or {}
+    ports: set[int] = set()
+    for body in (document.get("services") or {}).values():
+        for mapping in (body or {}).get("ports") or []:
+            # Splitting on ":" would break `${NAME:-8083}` into pieces, so peel the container
+            # port off the end first and then the host part, which may be an env default.
+            head, _, container = str(mapping).rpartition(":")
+            if not container.isdigit() or not head:
+                continue  # a bare container port: reachable inside the network, not published
+            # `${GATUS_PORT:-3001}` puts a colon inside the expression, so take the default out
+            # of the expansion rather than splitting on that colon.
+            host = head.rpartition(":-")[2].rstrip("}") if ":-" in head else head.rsplit(":", 1)[-1]
+            if host.isdigit():
+                ports.add(int(host))
+    return ports
+
+
+def test_every_published_port_appears_in_the_install_guide() -> None:
+    """A guide that omits a URL leaves an operator with a running service they cannot find."""
+    text = INSTALL_GUIDE.read_text(encoding="utf-8")
+
+    missing = sorted(port for port in _published_ports() if str(port) not in text)
+
+    assert not missing, f"published but not documented in docs/install.md: {missing}"
+
+
+def test_the_install_guide_names_no_url_that_is_not_published() -> None:
+    """The other direction, which is worse: a URL that looks real and refuses the connection."""
+    text = INSTALL_GUIDE.read_text(encoding="utf-8")
+    published = _published_ports()
+
+    offenders = sorted(
+        {int(port) for port in HOST_URL.findall(text)} - published - UNPUBLISHED_BUT_DOCUMENTED,
+    )
+
+    assert not offenders, f"docs/install.md shows host URLs on unpublished ports: {offenders}"
+
+
+def test_the_readme_urls_are_ports_that_exist() -> None:
+    text = README.read_text(encoding="utf-8")
+    published = _published_ports()
+
+    offenders = sorted(
+        {int(port) for port in HOST_URL.findall(text)} - published - UNPUBLISHED_BUT_DOCUMENTED
+    )
+
+    assert not offenders, f"README.md shows host URLs on unpublished ports: {offenders}"
+
+
+def test_the_readme_points_at_the_full_install_guide() -> None:
+    """The README is the front door; the guide is the manual. One has to lead to the other."""
+    text = README.read_text(encoding="utf-8")
+
+    assert "docs/install.md" in text

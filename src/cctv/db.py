@@ -44,6 +44,7 @@ __all__ = [
     "QueueSummary",
     "SchemaTooNewError",
     "claim_next_upload",
+    "cloud_expiry_batch",
     "counts_by_state",
     "ensure_camera",
     "finish_upload_attempt",
@@ -54,6 +55,7 @@ __all__ = [
     "known_review_ids",
     "last_successful_upload_at",
     "local_expiry_batch",
+    "mark_cloud_deleted",
     "mark_local_deleted",
     "migrate",
     "open_db",
@@ -85,6 +87,7 @@ CLIP_STATES = frozenset(
         "SKIPPED_BY_POLICY",
         "DELETED_LOCAL",
         "EXPIRED_CLOUD",
+        "PURGED",
         "FORCE_DELETED",
     }
 )
@@ -103,6 +106,10 @@ VALID_TRANSITIONS = frozenset(
         ("PENDING", "SKIPPED_BY_POLICY"),
         ("UPLOADED", "DELETED_LOCAL"),
         ("UPLOADED", "EXPIRED_CLOUD"),
+        # ADR-0023: the second copy. Either half-gone state can reach PURGED, which is the
+        # only state that means "neither copy exists".
+        ("DELETED_LOCAL", "PURGED"),
+        ("EXPIRED_CLOUD", "PURGED"),
         ("FAILED_PERMANENT", "FORCE_DELETED"),
         ("SKIPPED_BY_POLICY", "DELETED_LOCAL"),
     }
@@ -110,7 +117,7 @@ VALID_TRANSITIONS = frozenset(
 
 #: States a clip can never leave. Re-marking one is a no-op rather than an error, because
 #: a crash between an upload and its record must be recoverable by simply redoing it.
-TERMINAL_STATES = frozenset({"DELETED_LOCAL", "EXPIRED_CLOUD", "FORCE_DELETED"})
+TERMINAL_STATES = frozenset({"PURGED", "FORCE_DELETED"})
 
 #: Retries before a transient failure becomes permanent. See lld/04 §5.1.
 #:
@@ -593,7 +600,11 @@ def _state_of(conn: sqlite3.Connection, clip_id: int) -> str:
 
 
 def _require_transition(current: str, target: str, clip_id: int) -> None:
-    if current == target and target in TERMINAL_STATES | {"UPLOADED"}:
+    if current == target and target in TERMINAL_STATES | {
+        "UPLOADED",
+        "DELETED_LOCAL",
+        "EXPIRED_CLOUD",
+    }:
         return  # idempotent re-marking; a crash must be recoverable by redoing the work
     if (current, target) not in VALID_TRANSITIONS:
         raise IllegalTransitionError(
@@ -1287,10 +1298,18 @@ def reset_failed_permanent(
 #: This is the primary guard behind [INV-1]. Written as `upload_state NOT IN ('PENDING', …)`
 #: every state added later would be deletable by default; naming the permitted states means a
 #: new one is safe until somebody deliberately adds it here and considers the consequences.
-LOCAL_EXPIRY_STATES: frozenset[str] = frozenset({"UPLOADED", "SKIPPED_BY_POLICY"})
+#: States whose **local file** may still be removed. `EXPIRED_CLOUD` is here because the cloud
+#: copy is already gone and the file is now the only one — deleting it is the point of
+#: `local_days`, and it ends in `PURGED` (ADR-0023).
+LOCAL_EXPIRY_STATES: frozenset[str] = frozenset({"UPLOADED", "SKIPPED_BY_POLICY", "EXPIRED_CLOUD"})
 
-#: The finding kinds the schema accepts (migration 0002, `lld/05` §5.1). Kept here so a typo
-#: fails with a message naming the accepted values rather than as a bare CHECK violation.
+#: States whose **cloud object** may still be removed. `DELETED_LOCAL` is here for the mirror
+#: reason: the local file is gone, so expiring the object is the last step.
+CLOUD_EXPIRY_STATES: frozenset[str] = frozenset({"UPLOADED", "DELETED_LOCAL"})
+
+#: The finding kinds the schema accepts (migrations 0002 and 0004, `lld/05` §5.1). Kept here
+#: so a typo fails with a message naming the accepted values rather than as a bare CHECK
+#: violation.
 FINDING_KINDS: frozenset[str] = frozenset(
     {
         "orphan_object",
@@ -1299,6 +1318,7 @@ FINDING_KINDS: frozenset[str] = frozenset(
         "unexpected_local_file",
         "missing_local_file",
         "key_mismatch",
+        "cloud_delete_failed",
     }
 )
 
@@ -1369,6 +1389,85 @@ def local_expiry_batch(
     )
 
 
+def cloud_expiry_batch(
+    conn: sqlite3.Connection,
+    *,
+    camera: str,
+    cutoff: Instant,
+    limit: int,
+    after: tuple[float, int] | None = None,
+) -> list[sqlite3.Row]:
+    """One page of uploaded clips whose cloud copy is past `cloud_days`, oldest first.
+
+    The cutoff is compared against **`uploaded_at`, never `start_time`** (`lld/05` §4.3). A
+    worker that was down for two weeks and then caught up would otherwise expire fourteen days
+    of freshly uploaded clips immediately — deleting the backup it had just finished making.
+    `uploaded_at` gives every object its full life, and it is the same base time the provider's
+    `daysFromUploadingToHiding` rule uses, so the two mechanisms agree.
+
+    `cloud_deleted_at IS NULL` keeps a re-run idempotent, and the state filter is
+    `CLOUD_EXPIRY_STATES` — a clip that still has an object (ADR-0023): `UPLOADED` for the usual
+    case, `DELETED_LOCAL` when the local file has already gone and the object is the last copy.
+    A clip that never uploaded is in neither set, which is the one thing that would lose data.
+    """
+    placeholders = ",".join("?" * len(CLOUD_EXPIRY_STATES))
+    params: list[object] = [camera, *sorted(CLOUD_EXPIRY_STATES), cutoff]
+    cursor = ""
+    if after is not None:
+        cursor = "AND (uploaded_at > ? OR (uploaded_at = ? AND id > ?))"
+        params.extend([after[0], after[0], after[1]])
+    params.append(limit)
+    return list(
+        conn.execute(
+            f"""
+            SELECT id, camera, path, size_bytes, sha256, upload_state,
+                   start_time, cloud_key, uploaded_at
+              FROM clips
+             WHERE camera = ?
+               AND upload_state IN ({placeholders})
+               AND uploaded_at IS NOT NULL
+               AND uploaded_at < ?
+               AND cloud_deleted_at IS NULL
+               {cursor}
+             ORDER BY uploaded_at ASC, id ASC
+             LIMIT ?
+            """,
+            params,
+        )
+    )
+
+
+def mark_cloud_deleted(
+    conn: sqlite3.Connection, *, clip_id: int, now: Instant | None = None
+) -> bool:
+    """`UPLOADED` → `EXPIRED_CLOUD`, and stamp `cloud_deleted_at`.
+
+    **Assumes a transaction is already open**, like `mark_local_deleted`: the state change and
+    the audit record must commit together, and the caller opens one transaction per batch.
+
+    Only reached after the provider has **confirmed** the object is gone. An accepted `DELETE`
+    that merely created a hide marker is not this: the bytes would still be billed, and the
+    caller records a finding instead (`lld/05` §4.1).
+    """
+    now = timeutil.now() if now is None else now
+    row = conn.execute(
+        "SELECT upload_state, cloud_deleted_at FROM clips WHERE id = ?", (clip_id,)
+    ).fetchone()
+    if row is None:
+        raise DbError(f"No clip with id {clip_id}.")
+    if row["cloud_deleted_at"] is not None:
+        return False
+    current = str(row["upload_state"])
+    # ADR-0023: if the local file is already gone, expiring the object leaves nothing behind.
+    target = "PURGED" if current == "DELETED_LOCAL" else "EXPIRED_CLOUD"
+    _require_transition(current, target, clip_id)
+    conn.execute(
+        "UPDATE clips SET upload_state = ?, cloud_deleted_at = ?, updated_at = ? WHERE id = ?",
+        (target, now, now, clip_id),
+    )
+    return True
+
+
 def mark_local_deleted(
     conn: sqlite3.Connection, *, clip_id: int, now: Instant | None = None
 ) -> bool:
@@ -1390,11 +1489,13 @@ def mark_local_deleted(
         raise DbError(f"No clip with id {clip_id}.")
     if row["local_deleted_at"] is not None:
         return False
-    _require_transition(str(row["upload_state"]), "DELETED_LOCAL", clip_id)
+    current = str(row["upload_state"])
+    # ADR-0023: if the cloud object is already gone, removing the file leaves nothing behind.
+    target = "PURGED" if current == "EXPIRED_CLOUD" else "DELETED_LOCAL"
+    _require_transition(current, target, clip_id)
     conn.execute(
-        "UPDATE clips SET upload_state = 'DELETED_LOCAL', local_deleted_at = ?, updated_at = ? "
-        "WHERE id = ?",
-        (now, now, clip_id),
+        "UPDATE clips SET upload_state = ?, local_deleted_at = ?, updated_at = ? WHERE id = ?",
+        (target, now, now, clip_id),
     )
     return True
 
@@ -1450,23 +1551,26 @@ class OverdueSummary:
 def overdue_local(conn: sqlite3.Connection, *, camera: str, cutoff: Instant) -> OverdueSummary:
     """Count the clips one camera is holding past its retention window.
 
-    This filter **is** a negation, unlike the deletion query, and that is safe for the same
-    reason it is unsafe there: nothing is deleted from this result. The question is "what is
-    not finished?", and a state added later should count as unfinished until someone decides
-    otherwise.
+    The filter is `HELD_STATES`, an allow-list, and it became one with ADR-0023: while
+    `DELETED_LOCAL` and `EXPIRED_CLOUD` were terminal, "not uploaded and not terminal" meant
+    "held", which is the honest question — *what is the disk holding because INV-1 forbids
+    deleting it?* Once those two states stopped being terminal they described clips waiting for
+    their **second** deletion, and counting them as held would have inflated the number that
+    exists to show the cost of the invariant.
     """
+    placeholders = ",".join("?" * len(HELD_STATES))
     row = conn.execute(
-        """
+        f"""
         SELECT COUNT(*) AS n,
                COALESCE(SUM(size_bytes), 0) AS bytes,
                MIN(start_time) AS oldest
           FROM clips
          WHERE camera = ?
-           AND upload_state NOT IN ('UPLOADED', 'SKIPPED_BY_POLICY')
+           AND upload_state IN ({placeholders})
            AND start_time < ?
            AND local_deleted_at IS NULL
         """,
-        (camera, cutoff),
+        (camera, *HELD_STATES, cutoff),
     ).fetchone()
     return OverdueSummary(
         count=int(row["n"]),

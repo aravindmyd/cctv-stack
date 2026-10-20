@@ -315,7 +315,10 @@ def test_a_deletable_state_does_not_make_every_state_deletable(env: Env) -> None
     rather than a promise: adding a state to `CLIP_STATES` without adding it to
     `LOCAL_EXPIRY_STATES` cannot make it deletable.
     """
-    assert frozenset({"UPLOADED", "SKIPPED_BY_POLICY"}) == db.LOCAL_EXPIRY_STATES
+    # ADR-0023 added EXPIRED_CLOUD: the cloud copy is gone, so the file is the only one left.
+    assert frozenset({"UPLOADED", "SKIPPED_BY_POLICY", "EXPIRED_CLOUD"}) == (db.LOCAL_EXPIRY_STATES)
+    # The safety point is unchanged: a clip whose upload has not finished is never deletable.
+    assert db.LOCAL_EXPIRY_STATES.isdisjoint(db.HELD_STATES)
     assert db.LOCAL_EXPIRY_STATES <= db.CLIP_STATES
 
     # A real state outside the permitted set is not returned by the query, even though it is
@@ -888,17 +891,17 @@ def test_a_quiet_system_is_healthy(env: Env, monkeypatch: pytest.MonkeyPatch) ->
     assert check_of(report, "clips_dir").state == health.HEALTHY
 
 
-def test_cloud_retention_is_reported_disabled_not_healthy(env: Env) -> None:
-    """An unimplemented check must never look like a check that passed.
+def test_cloud_retention_without_a_bucket_is_disabled_not_healthy(env: Env) -> None:
+    """No bucket is a supported choice, and `DISABLED` is neutral in `derive_state`.
 
-    J2 does not exist yet, so `DISABLED` is the truthful answer — and `DISABLED` is neutral in
-    `derive_state`, so being honest about the gap does not make the component look broken.
+    What must never happen is `HEALTHY`: a capability that cannot run is not a capability that
+    passed.
     """
-    check = check_of(reporter_for(env).report(), "storage_reachable")
+    check = check_of(reporter_for(env).report(), "cloud_retention")
 
     assert check.state == health.DISABLED
     assert check.code is None
-    assert "not implemented" in (check.detail or "")
+    assert "no bucket" in (check.detail or "")
 
 
 def test_a_service_that_has_never_run_is_not_healthy(env: Env) -> None:

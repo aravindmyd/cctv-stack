@@ -25,10 +25,10 @@ what to delete; delete differently for a retired camera; touch `data/media/` or
 
 ## Scope
 
-**J1 only.** Cloud retention (J2), reconciliation (J3), housekeeping (J4) and the full
+**J1 and J2.** Cloud retention deletes an object only after the provider confirms it is gone,
+and only for a clip whose upload succeeded. Reconciliation (J3), housekeeping (J4) and the full
 retention report (J5) are not implemented yet; the deferred work is recorded in
-[`.private/plans/milestones.md`](../../../.private/plans/milestones.md). The service wrapper, health
-surface and compose entry point arrive with the rest of M4.
+[`.private/plans/milestones.md`](../../../.private/plans/milestones.md).
 """
 
 from __future__ import annotations
@@ -42,11 +42,12 @@ import sqlite3
 import sys
 import threading
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from . import db, health, paths, timeutil
+from . import db, health, paths, storage, timeutil
 from .config import CamerasConfig, ConfigError, load_cameras_config
 from .logging import configure_logging
 from .timeutil import Instant
@@ -56,6 +57,7 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "COMPONENT",
     "DEFAULT_BATCH_SIZE",
+    "DEFAULT_DELETE_CONCURRENCY",
     "DEFAULT_HEALTH_PORT",
     "DEFAULT_LOCAL_DAYS",
     "DEFAULT_RETIRE_GRACE_DAYS",
@@ -64,6 +66,8 @@ __all__ = [
     "CleanupPathError",
     "CleanupService",
     "CleanupSettings",
+    "CloudRetention",
+    "CloudRun",
     "LocalRetention",
     "RetentionRun",
     "main",
@@ -81,6 +85,13 @@ SECONDS_PER_DAY = 86400.0
 DEFAULT_RUN_INTERVAL_S = 3600.0
 DEFAULT_BATCH_SIZE = 200
 DEFAULT_SCHEDULER_TICK_S = 1.0
+
+#: Cloud deletion is network I/O, so four at a time (lld/05 §12). Higher multiplies provider
+#: rate limits without making a run measurably shorter.
+DEFAULT_DELETE_CONCURRENCY = 4
+
+#: How many consecutive failed cloud deletions make the health check unhealthy (lld/05 §9).
+DEFAULT_CLOUD_DELETE_FAILURE_CRITICAL = 5
 
 #: The cleanup health surface (hld.md §11 — internal only, loopback in compose).
 DEFAULT_HEALTH_PORT = 8083
@@ -112,6 +123,9 @@ LAST_RUN_NAME = "cleanup_local"
 DEFAULT_LOCAL_DAYS = 90
 DEFAULT_RETIRE_GRACE_DAYS = 0
 
+#: The same fallback for the cloud copy. `retention.cloud_days` defaults to 60.
+DEFAULT_CLOUD_DAYS = 60
+
 
 class CleanupPathError(ValueError):
     """A clip path that will not be acted on.
@@ -141,6 +155,10 @@ class CleanupSettings:
     disk_warn_pct: float
     disk_critical_pct: float
     log_level: str | None
+    #: Cloud retention (J2) runs in the same cycle as J1 (`lld/05` §8), so it has no cadence of
+    #: its own. `dry_run` above applies to both passes.
+    delete_concurrency: int = DEFAULT_DELETE_CONCURRENCY
+    cloud_delete_failure_critical: int = DEFAULT_CLOUD_DELETE_FAILURE_CRITICAL
 
     @property
     def clips_dir(self) -> Path:
@@ -159,6 +177,8 @@ class CleanupSettings:
             return "CCTV_CLEANUP_OVERDUE_CRITICAL cannot be below CCTV_CLEANUP_OVERDUE_WARN."
         if self.disk_critical_pct >= self.disk_warn_pct:
             return "CCTV_HEALTH_DISK_CRITICAL_PCT must be below CCTV_HEALTH_DISK_WARN_PCT."
+        if self.delete_concurrency < 1:
+            return "CCTV_CLEANUP_DELETE_CONCURRENCY must be at least 1."
         return None
 
     @classmethod
@@ -202,6 +222,15 @@ class CleanupSettings:
             ),
             disk_warn_pct=number("CCTV_HEALTH_DISK_WARN_PCT", DEFAULT_DISK_WARN_PCT),
             disk_critical_pct=number("CCTV_HEALTH_DISK_CRITICAL_PCT", DEFAULT_DISK_CRITICAL_PCT),
+            delete_concurrency=int(
+                number("CCTV_CLEANUP_DELETE_CONCURRENCY", DEFAULT_DELETE_CONCURRENCY)
+            ),
+            cloud_delete_failure_critical=int(
+                number(
+                    "CCTV_CLEANUP_CLOUD_DELETE_CRITICAL",
+                    DEFAULT_CLOUD_DELETE_FAILURE_CRITICAL,
+                )
+            ),
             log_level=env.get("CCTV_LOG_LEVEL") or None,
         )
 
@@ -251,6 +280,8 @@ class RetentionRun:
     dry_run: bool = False
     started_at: Instant = 0.0
     finished_at: Instant = 0.0
+    #: The cloud pass that followed this one, or `None` when it did not run.
+    cloud: CloudRun | None = None
 
     @property
     def duration_s(self) -> float:
@@ -479,6 +510,204 @@ class LocalRetention:
         self._logger.info(message, extra=extra)
 
 
+@dataclass
+class CloudRun:
+    """What one J2 pass did, or would have done under `DRY_RUN`."""
+
+    cameras: int = 0
+    considered: int = 0
+    deleted: int = 0
+    failed: int = 0
+    would_delete: int = 0
+    bytes_freed: int = 0
+    dry_run: bool = False
+    disabled: bool = False
+    started_at: Instant = 0.0
+    finished_at: Instant = 0.0
+
+    @property
+    def duration_s(self) -> float:
+        return max(0.0, self.finished_at - self.started_at)
+
+
+class CloudRetention:
+    """J2: delete cloud objects past `cloud_days`, and only when the provider confirms it.
+
+    Three behaviours here are the whole point of the class:
+
+    * the cutoff is measured from **`uploaded_at`**, not `start_time` (`lld/05` §4.3);
+    * a `DELETE` the provider accepts is not a deletion until a read-back says the object is
+      gone — otherwise the bytes are merely hidden and still billed (§4.1);
+    * a clip whose upload never succeeded is never considered, because the cloud copy would be
+      the only copy ([INV-1](../../../internal/architecture/invariants.md)).
+    """
+
+    def __init__(
+        self,
+        *,
+        settings: CleanupSettings,
+        adapter: storage.StorageAdapter | None,
+        location: str,
+        logger: Any | None = None,
+        clock: Any = timeutil.now,
+    ) -> None:
+        self._settings = settings
+        self._adapter = adapter
+        self._location = location
+        self._clock = clock
+        self._logger = logger
+        #: Consecutive failures, for the health check. Reset by any successful deletion.
+        self.consecutive_failures = 0
+
+    @property
+    def enabled(self) -> bool:
+        return self._adapter is not None
+
+    def cutoff_for(
+        self, camera: str, *, config: CamerasConfig, retired: bool, now: Instant
+    ) -> Instant:
+        """The oldest `uploaded_at` that survives, for one camera.
+
+        A retired camera falls back to the default window plus the retire grace, exactly as
+        local retention does: footage does not become immortal because its camera left the
+        config.
+        """
+        configured = config.cameras.get(camera)
+        if configured is not None:
+            days = float(configured.retention.cloud_days)
+        else:
+            grace = self._settings.retire_grace_days if retired else 0
+            days = float(DEFAULT_CLOUD_DAYS + grace)
+        return now - days * SECONDS_PER_DAY
+
+    # -- the run -------------------------------------------------------------------------
+
+    def run_once(self, conn: Any, config: CamerasConfig) -> CloudRun:
+        """One J2 pass over every known camera, deleting in batches."""
+        started = self._clock()
+        if self._adapter is None:
+            # DISABLED, not "clean": no bucket means nothing was ever uploaded, so there is
+            # nothing to expire and nothing to claim.
+            return CloudRun(disabled=True, started_at=started, finished_at=started)
+
+        cameras = db.known_cameras(conn)
+        run = CloudRun(cameras=len(cameras), dry_run=self._settings.dry_run, started_at=started)
+        for row in cameras:
+            camera = str(row["name"])
+            retired = row["retired_at"] is not None
+            cutoff = self.cutoff_for(camera, config=config, retired=retired, now=started)
+            self._expire_camera(conn, camera=camera, cutoff=cutoff, run=run)
+        run.finished_at = self._clock()
+        return run
+
+    def _expire_camera(self, conn: Any, *, camera: str, cutoff: Instant, run: CloudRun) -> None:
+        cursor: tuple[float, int] | None = None
+        while True:
+            batch = db.cloud_expiry_batch(
+                conn,
+                camera=camera,
+                cutoff=cutoff,
+                limit=self._settings.batch_size,
+                after=cursor,
+            )
+            if not batch:
+                return
+            run.considered += len(batch)
+            outcomes = self._delete_all(batch)
+            with db.write_txn(conn):
+                for clip, outcome in zip(batch, outcomes, strict=True):
+                    self._record(conn, clip, outcome, run=run, camera=camera)
+            last = batch[-1]
+            cursor = (float(last["uploaded_at"]), int(last["id"]))
+
+    def _delete_all(self, batch: list[Any]) -> list[Any]:
+        """Delete a batch, four at a time, and never raise: an outcome per clip."""
+        assert self._adapter is not None
+        results: list[Any] = []
+        with ThreadPoolExecutor(max_workers=self._settings.delete_concurrency) as pool:
+            futures = [pool.submit(self._delete_one, clip) for clip in batch]
+            for future in futures:
+                results.append(future.result())
+        return results
+
+    def _delete_one(self, clip: Any) -> Any:
+        """`DeleteResult`, or the `StorageError` that stopped it."""
+        assert self._adapter is not None
+        key = str(clip["cloud_key"] or "")
+        if not key:
+            # Derive rather than skip: INV-5 makes the key a function of the path, and a row
+            # without one is a bug worth surviving rather than skipping.
+            key = paths.clip_cloud_key(self._location, PurePosixPath(str(clip["path"])))
+            self._log("CLOUD_KEY_DERIVED", clip_id=int(clip["id"]), path=key)
+        if self._settings.dry_run:
+            return storage.DeleteResult(key=key, deleted=True)
+        try:
+            return self._adapter.delete_object(key=key)
+        except storage.StorageError as exc:
+            return exc
+
+    def _record(self, conn: Any, clip: Any, outcome: Any, *, run: CloudRun, camera: str) -> None:
+        clip_id = int(clip["id"])
+        now = self._clock()
+
+        # Guard: re-read inside the transaction. The page query ran outside it, so the row may
+        # have changed — and deleting a cloud object for a clip that is no longer UPLOADED
+        # would be acting on a stale decision.
+        row = conn.execute(
+            "SELECT upload_state, cloud_deleted_at, size_bytes FROM clips WHERE id = ?",
+            (clip_id,),
+        ).fetchone()
+        if row is None or str(row["upload_state"]) not in db.CLOUD_EXPIRY_STATES:
+            return
+        if row["cloud_deleted_at"] is not None:
+            return
+
+        key = getattr(outcome, "key", "") or str(clip["cloud_key"] or "")
+
+        if isinstance(outcome, storage.DeleteResult) and outcome.deleted:
+            if self._settings.dry_run:
+                run.would_delete += 1
+                return
+            db.mark_cloud_deleted(conn, clip_id=clip_id, now=now)
+            run.deleted += 1
+            run.bytes_freed += int(row["size_bytes"] or 0)
+            self.consecutive_failures = 0
+            self._log("CLIP_CLOUD_EXPIRED", clip_id=clip_id, camera=camera, path=key)
+            return
+
+        # Either the provider refused, or it accepted and left the object there. Both mean the
+        # object is still billed, so the state stays UPLOADED and the next run tries again.
+        detail = (
+            str(outcome)
+            if isinstance(outcome, Exception)
+            else (getattr(outcome, "detail", None) or "the object is still present")
+        )
+        run.failed += 1
+        self.consecutive_failures += 1
+        db.record_finding(
+            conn,
+            kind="cloud_delete_failed",
+            subject=key,
+            detail=detail[:500],
+            now=now,
+        )
+        if self._logger is not None:
+            self._logger.warning(
+                "cloud deletion failed; the object is still billed",
+                extra={
+                    "clip_id": clip_id,
+                    "camera": camera,
+                    "path": key,
+                    "reason": detail,
+                },
+            )
+
+    def _log(self, message: str, **extra: Any) -> None:
+        if self._logger is None:
+            return
+        self._logger.info(message, extra=extra)
+
+
 class _Counters:
     """Mutable tallies for one run. A dataclass would only add ceremony."""
 
@@ -535,11 +764,13 @@ class CleanupHealth:
         *,
         settings: CleanupSettings,
         config: CamerasConfig,
+        cloud: CloudRetention | None = None,
         started_at: Instant | None = None,
         clock: Any = timeutil.now,
     ) -> None:
         self._settings = settings
         self._config = config
+        self._cloud = cloud
         self._clock = clock
         self._started_at = self._clock() if started_at is None else started_at
         # Built here rather than injected, so the retention windows this reports on cannot
@@ -749,16 +980,43 @@ class CleanupHealth:
         return health.Check(name="disk_free", state=health.HEALTHY, detail=detail)
 
     def _storage_check(self) -> health.Check:
-        """Cloud retention (J2) does not exist yet, and says so.
+        """Whether cloud retention can run, and whether it is actually deleting.
 
-        `DISABLED` rather than `HEALTHY`: an unimplemented check must never look like a check
-        that passed. `DISABLED` is neutral in `derive_state`, so it is honest without dragging
-        the component's state down over a capability that has not been claimed.
+        Three states, deliberately distinct:
+
+        * no bucket configured → `DISABLED`, because that is a supported choice and not a fault;
+        * bucket configured but deletions failing → `UNHEALTHY`, because every failed deletion
+          is an object still being billed;
+        * otherwise `HEALTHY`.
         """
+        if self._cloud is None or not self._cloud.enabled:
+            return health.Check(
+                name="cloud_retention",
+                state=health.DISABLED,
+                detail="no bucket is configured, so there is nothing to expire",
+            )
+        failures = self._cloud.consecutive_failures
+        if failures >= self._settings.cloud_delete_failure_critical:
+            return health.Check(
+                name="cloud_retention",
+                state=health.UNHEALTHY,
+                code="CLOUD_DELETE_FAILING",
+                detail=(
+                    f"{failures} consecutive cloud deletions failed; those objects are still "
+                    f"being billed. See the cloud_delete_failed findings."
+                ),
+            )
+        if failures:
+            return health.Check(
+                name="cloud_retention",
+                state=health.DEGRADED,
+                code="CLOUD_DELETE_FAILING",
+                detail=f"{failures} cloud deletion(s) failed; retried on the next pass",
+            )
         return health.Check(
-            name="storage_reachable",
-            state=health.DISABLED,
-            detail="cloud retention (J2) is not implemented yet",
+            name="cloud_retention",
+            state=health.HEALTHY,
+            detail="deleting objects past retention and confirming each deletion",
         )
 
     def _summary(self, checks: Sequence[health.Check]) -> str:
@@ -797,6 +1055,7 @@ class CleanupService:
         *,
         settings: CleanupSettings,
         config: CamerasConfig,
+        adapter: storage.StorageAdapter | None = None,
         clock: Any = timeutil.now,
     ) -> None:
         self._settings = settings
@@ -806,12 +1065,32 @@ class CleanupService:
         # `LocalRetention` would let a caller hand in a dry-run setting and a live runner —
         # a combination that deletes files while claiming to be a rehearsal.
         self._retention = LocalRetention(settings=settings, logger=logger, clock=clock)
+        self._cloud = CloudRetention(
+            settings=settings,
+            adapter=adapter,
+            location=config.site.location,
+            logger=logger,
+            clock=clock,
+        )
+
+    @property
+    def cloud(self) -> CloudRetention:
+        """The J2 pass, exposed for the health surface and for tests."""
+        return self._cloud
 
     def run_once(self) -> RetentionRun:
-        """One pass, on its own connection, with the outcome recorded either way."""
+        """One pass of J1 then J2, on its own connection, with the outcome recorded either way.
+
+        J1 then J2, sequentially, never concurrently (`lld/05` §8): local deletion must not race
+        the cloud pass deciding whether the local file still exists.
+        """
         conn = db.open_db(self._settings.db_path)
         try:
             run = self._retention.run_once(conn, self._config)
+            # `RetentionRun` is frozen; the cloud pass belongs to the same cycle, so the run
+            # is rebuilt with it rather than mutated.
+            cloud_run = self._cloud.run_once(conn, self._config)
+            run = replace(run, cloud=cloud_run)
         except Exception as exc:
             # Recorded, then re-raised: the caller decides whether to keep going, and the
             # staleness check must see that a pass *failed* rather than never happened.
@@ -824,6 +1103,7 @@ class CleanupService:
                 now=self._clock(),
             )
             raise
+        cloud = run.cloud
         db.set_watermark(
             conn,
             name=LAST_RUN_NAME,
@@ -831,8 +1111,9 @@ class CleanupService:
             succeeded=True,
             note=(
                 f"deleted={run.deleted} missing={run.missing} refused={run.refused} "
-                f"would_delete={run.would_delete}"
-            ),
+                f"would_delete={run.would_delete} "
+                f"cloud_deleted={cloud.deleted} cloud_failed={cloud.failed}"
+            )[:200],
             now=self._clock(),
         )
         return run
@@ -983,7 +1264,11 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     logger.info("state store ready", extra={"state": f"schema-{version}"})
 
-    reporter = CleanupHealth(settings=settings, config=config)
+    # The adapter is optional on purpose: no bucket is a supported state, and J2 then reports
+    # DISABLED rather than pretending there is nothing to expire.
+    adapter = _build_adapter()
+    service = CleanupService(settings=settings, config=config, adapter=adapter)
+    reporter = CleanupHealth(settings=settings, config=config, cloud=service.cloud)
 
     stop = threading.Event()
     _install_signal_handlers(stop)
@@ -1003,7 +1288,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     else:
         logger.warning("no health endpoint: CCTV_CLEANUP_HEALTH_PORT is 0")
 
-    service = CleanupService(settings=settings, config=config)
     try:
         service.run(stop)
     finally:
@@ -1013,3 +1297,26 @@ def main(argv: Sequence[str] | None = None) -> int:
         logger.info("stopped")
 
     return EXIT_OK
+
+
+def _build_adapter() -> storage.StorageAdapter | None:
+    """The storage adapter, or `None` when cloud backup is not configured.
+
+    Imported lazily so that the `storage` extra remains optional for a local-only site: a
+    cleanup service with no bucket must start fine on an image without `boto3`.
+    """
+    from .uploader import UploadSettings, build_adapter
+
+    try:
+        settings = UploadSettings.from_environ()
+    except ConfigError as exc:
+        logger.warning("cloud retention disabled: %s", exc)
+        return None
+    if not settings.storage_configured:
+        logger.info("cloud retention disabled: no bucket is configured")
+        return None
+    try:
+        return build_adapter(settings)
+    except storage.StorageBackendMissingError as exc:
+        logger.warning("cloud retention disabled: %s", exc)
+        return None

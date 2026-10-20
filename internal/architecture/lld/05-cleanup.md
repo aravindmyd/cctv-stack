@@ -1,5 +1,16 @@
 # LLD 05 — cleanup
 
+> **Implementation status (2026-10-20).** **J1 and J2 are built.** J1 is `LocalRetention`;
+> J2 is `CloudRetention`, run in the same cycle immediately after J1 (`§8`) and gated on a
+> configured bucket — with none it reports `DISABLED`, not "clean". A cloud deletion is only
+> recorded once a read-back confirms the object is gone; a hide marker or an error keeps the row
+> and records a `cloud_delete_failed` finding, which the `cloud_retention` health check surfaces
+> as `DEGRADED` then `UNHEALTHY` (`CLOUD_DELETE_FAILING`). The cutoff is `uploaded_at` (§4.3).
+> **ADR-0023** resolved the ordering gap this exposed: `DELETED_LOCAL` and `EXPIRED_CLOUD` now
+> describe *which copy is gone*, each can be followed by the other pass, and `PURGED` is the
+> terminal state when both are. **Not built:** J3 reconciliation, J4 housekeeping, J5's full
+> report, and force-delete (ADR-0021).
+
 **Implements:** [INV-1](../invariants.md), [INV-10](../invariants.md), [INV-13](../invariants.md)
 **Specified by:** [`contracts/database-schema.md`](../contracts/database-schema.md), [`contracts/cloud-object-layout.md`](../contracts/cloud-object-layout.md)
 

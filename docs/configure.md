@@ -137,7 +137,7 @@ is refused with the reason — the guard working, not a bug.
 | Key | Default | Meaning |
 |---|---|---|
 | `local_days` | `90` | How long a clip stays on disk after it is uploaded |
-| `cloud_days` | `60` | Recorded in the database. Cloud deletion is not implemented yet; use a B2 lifecycle rule on the bucket prefix if you want objects to expire |
+| `cloud_days` | `60` | How long the **cloud copy** lives, counted from the upload. `cleanup` deletes the object once it passes, and records the deletion only when the provider confirms it is gone |
 | `upload` | `true` | Set to `false` to keep a camera local-only. Its clips are marked `SKIPPED_BY_POLICY` and become eligible for local retention without an upload |
 
 ### `snapshots`
@@ -338,6 +338,8 @@ failure there is loud but not fatal: local recording does not depend on the buck
 | `CCTV_HEALTH_HOST` | `0.0.0.0` | Bind address inside the container |
 | `INTERNAL_API_TOKEN` | empty | Enables `/admin/queue` and `/admin/retry` on the uploader |
 | `CCTV_CLEANUP_RUN_INTERVAL_S` | `3600` | Local retention cadence |
+| `CCTV_CLEANUP_DELETE_CONCURRENCY` | `4` | Parallel cloud deletions |
+| `CCTV_CLEANUP_CLOUD_DELETE_CRITICAL` | `5` | Consecutive failed deletions before `UNHEALTHY` |
 | `CCTV_CLEANUP_BATCH_SIZE` | `200` | Clips per transaction |
 | `CCTV_CLEANUP_RETIRE_GRACE_DAYS` | `0` | Extra retention for a camera removed from the config |
 | `CCTV_CLEANUP_OVERDUE_WARN` | `1` | Held clips before cleanup reports `DEGRADED` |

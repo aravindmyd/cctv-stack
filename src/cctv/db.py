@@ -44,6 +44,8 @@ __all__ = [
     "QueueSummary",
     "SchemaTooNewError",
     "claim_next_upload",
+    "clip_rows_with_cloud_key",
+    "clip_rows_with_local_file",
     "cloud_expiry_batch",
     "counts_by_state",
     "ensure_camera",
@@ -59,10 +61,12 @@ __all__ = [
     "mark_local_deleted",
     "migrate",
     "open_db",
+    "open_findings",
     "overdue_local",
     "queue_summary",
     "record_event",
     "record_finding",
+    "record_finding_once",
     "release_lease",
     "reset_failed_permanent",
     "schema_version",
@@ -1528,6 +1532,101 @@ def record_finding(
             subject,
             None if detail is None else json.dumps(detail),
         ),
+    )
+
+
+def record_finding_once(
+    conn: sqlite3.Connection,
+    *,
+    kind: str,
+    subject: str,
+    detail: object | None = None,
+    now: Instant | None = None,
+) -> bool:
+    """Record a finding unless an unresolved one already exists for this kind and subject.
+
+    Reconciliation runs daily over the same drift, so a plain insert would grow one row per day
+    for a problem nobody has fixed yet — which turns the table into a log and makes "what is
+    wrong?" a question about volume. Returns whether anything was written.
+    """
+    if kind not in FINDING_KINDS:
+        raise DbError(
+            f"{kind!r} is not a finding kind. The documented kinds are "
+            f"{', '.join(sorted(FINDING_KINDS))} (lld/05 §5.1)."
+        )
+    cursor = conn.execute(
+        """
+        INSERT INTO reconciliation_findings (run_at, kind, subject, detail)
+        SELECT ?, ?, ?, ?
+         WHERE NOT EXISTS (
+            SELECT 1 FROM reconciliation_findings
+             WHERE kind = ? AND subject = ? AND resolved_at IS NULL
+         )
+        """,
+        (
+            timeutil.now() if now is None else now,
+            kind,
+            subject,
+            None if detail is None else json.dumps(detail),
+            kind,
+            subject,
+        ),
+    )
+    return cursor.rowcount > 0
+
+
+def open_findings(conn: sqlite3.Connection, *, kinds: Collection[str] | None = None) -> int:
+    """How many findings are unresolved, optionally limited to some kinds."""
+    if kinds:
+        placeholders = ",".join("?" * len(kinds))
+        row = conn.execute(
+            f"SELECT COUNT(*) AS n FROM reconciliation_findings "
+            f"WHERE resolved_at IS NULL AND kind IN ({placeholders})",
+            tuple(sorted(kinds)),
+        ).fetchone()
+    else:
+        row = conn.execute(
+            "SELECT COUNT(*) AS n FROM reconciliation_findings WHERE resolved_at IS NULL"
+        ).fetchone()
+    return int(row["n"])
+
+
+def clip_rows_with_cloud_key(
+    conn: sqlite3.Connection, *, limit: int = 1000, after_id: int = 0
+) -> list[sqlite3.Row]:
+    """One page of rows that claim a cloud object, for reconciliation to compare against."""
+    return list(
+        conn.execute(
+            """
+            SELECT id, camera, path, cloud_key, sha256, size_bytes, upload_state,
+                   local_deleted_at, uploaded_at
+              FROM clips
+             WHERE cloud_key IS NOT NULL
+               AND id > ?
+             ORDER BY id ASC
+             LIMIT ?
+            """,
+            (after_id, limit),
+        )
+    )
+
+
+def clip_rows_with_local_file(
+    conn: sqlite3.Connection, *, limit: int = 1000, after_id: int = 0
+) -> list[sqlite3.Row]:
+    """One page of rows that should have a local file (`local_deleted_at IS NULL`)."""
+    return list(
+        conn.execute(
+            """
+            SELECT id, camera, path, sidecar_path, upload_state
+              FROM clips
+             WHERE local_deleted_at IS NULL
+               AND id > ?
+             ORDER BY id ASC
+             LIMIT ?
+            """,
+            (after_id, limit),
+        )
     )
 
 

@@ -196,3 +196,24 @@ the clips on disk.
 There is no aggregate status page, no alerting, and no notification integration. Each
 service reports on itself, and the operator checks those reports. If you run an uptime
 monitor, point it at `/health?strict=1` on both ports.
+
+## Reconciliation findings
+
+Once a day, `cleanup` compares the bucket listing against the database and writes what it finds
+to `reconciliation_findings`. It never fixes anything: every repair is a guess about which side is
+right, and deleting an "orphan" object can destroy the only surviving copy of a clip whose row was
+lost to a restore.
+
+| Finding | Means | Severity |
+|---|---|---|
+| `dangling_row` | the row says an object exists; it does not | critical |
+| `checksum_mismatch` | the stored object is not the bytes we recorded | critical |
+| `key_mismatch` | `cloud_key` is not the key this version would build from the path | critical |
+| `orphan_object` | an object no row references | warning — it is billed |
+| `unexpected_local_file` | a file under `clips/` with no row | warning |
+| `missing_local_file` | a row whose file is gone | warning |
+
+The `reconciliation` health check reports `RECONCILE_FINDINGS` when any critical finding is open,
+and `RECONCILE_STALE` when the daily pass has not completed for twice its interval. A finding is
+recorded once per subject while it stays unresolved, so a problem you have not fixed yet is one
+row, not one row per day.

@@ -22,7 +22,8 @@ design.
 | Diagnosis (`./scripts/doctor.sh`) | ✅ built |
 | Backup and restore (`./backup.sh`) | ✅ built — config, database, manifest |
 | Upgrade and rollback (`./update.sh`) | ✅ built — backup, migrate, verify |
-| Reconciliation (J3) and housekeeping (J4) | ⬜ deferred |
+| Reconciliation (J3) | ✅ built — reports drift, repairs nothing |
+| Housekeeping (J4) | ⬜ deferred |
 | One-command client installer and signed bundle | ⬜ deferred (M6) |
 | Backup, restore, upgrade | ⬜ deferred (M7) |
 

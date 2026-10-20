@@ -21,8 +21,9 @@ It is not a replacement for Frigate. It is the missing layer around it.
 **Current release: `0.7.0`.** Clips, B2 upload, upload-aware local retention, the aggregate
 status page with Gatus/ntfy alerting, a guided one-command installer, `./scripts/doctor.sh`
 diagnosis, encrypted backups, `./update.sh` upgrades, two days of continuous footage kept
-locally, and cloud retention that only deletes an object once the provider confirms it is gone.
-Reconciliation is not — see [`CONTRIBUTING.md`](CONTRIBUTING.md) for the exact state and roadmap.
+locally, cloud retention that only deletes an object once the provider confirms it is gone, and a daily
+reconciliation that reports where the bucket and the database disagree. Housekeeping and
+force-delete are not — see [`CONTRIBUTING.md`](CONTRIBUTING.md) for the exact state and roadmap.
 
 ---
 

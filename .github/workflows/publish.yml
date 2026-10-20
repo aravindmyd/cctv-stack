@@ -8,7 +8,9 @@ name: Publish
 # On a `v*` tag, additionally:
 #   * publish semver image tags
 #   * publish the wheel and sdist to PyPI
-#   * attach them to a GitHub Release
+#   * assemble the release bundle from an allowlist, verify the built artefact, and sign its
+#     checksums with cosign (keyless, over the workflow's OIDC identity)
+#   * attach all of it to a GitHub Release
 #
 # PyPI is deliberately not published on every merge: versions are immutable, so the
 # second merge with the same version fails. A per-merge pip install is served by the
@@ -175,10 +177,165 @@ jobs:
         with:
           packages-dir: dist/
 
+  # The artefact a customer actually receives (packaging.md §2). Assembled from an explicit
+  # allowlist rather than `git archive`, then *verified as built* — because the check that
+  # matters is on the thing about to be published, not on the code that made it. Signing uses
+  # cosign keyless, so there is no private key to steal: the signature is bound to this
+  # workflow's identity and the tag that triggered it.
+  bundle:
+    name: release bundle
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [verify, image]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: read
+      id-token: write # cosign keyless signing
+    env:
+      # Bumped together, deliberately: `lld/09` says a Frigate bump changes an external
+      # dependency and needs the integration checklist re-run, which is why the version the
+      # digests are resolved from is written here rather than read from `stable`.
+      FRIGATE_VERSION: "0.18.0"
+      FRIGATE_CONTRACT_VERIFIED: "0.18.0"
+      MOSQUITTO_IMAGE: "eclipse-mosquitto:2"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - run: uv sync
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Digests, not tags (ADR-0014): a tag can be moved, and the signature covers bytes.
+      - name: Resolve the digests this release pins
+        id: digests
+        env:
+          RELEASE_VERSION: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import json
+          import os
+          import subprocess
+
+          version = os.environ["RELEASE_VERSION"].removeprefix("v")
+          owner = os.environ["GITHUB_REPOSITORY_OWNER"]
+
+          def raw(reference: str) -> dict:
+              result = subprocess.run(
+                  ["docker", "buildx", "imagetools", "inspect", reference, "--raw"],
+                  check=True,
+                  capture_output=True,
+                  text=True,
+              )
+              return json.loads(result.stdout)
+
+          def per_arch(reference: str) -> dict[str, str]:
+              manifest = raw(reference)
+              found: dict[str, str] = {}
+              for entry in manifest.get("manifests") or []:
+                  platform = entry.get("platform") or {}
+                  arch = platform.get("architecture")
+                  if platform.get("os") == "linux" and arch in {"amd64", "arm64"}:
+                      found[arch] = entry["digest"]
+              if set(found) != {"amd64", "arm64"}:
+                  raise SystemExit(
+                      f"{reference} did not resolve both architectures: {sorted(found)}. "
+                      "A release pins both, because they are different images."
+                  )
+              return found
+
+          def index_digest(reference: str) -> str:
+              result = subprocess.run(
+                  ["docker", "buildx", "imagetools", "inspect", reference],
+                  check=True,
+                  capture_output=True,
+                  text=True,
+              )
+              for line in result.stdout.splitlines():
+                  stripped = line.strip()
+                  if stripped.lower().startswith("digest:"):
+                      return stripped.split(":", 1)[1].strip()
+              raise SystemExit(f"could not read the index digest of {reference}")
+
+          cctv = per_arch(f"ghcr.io/{owner}/cctv-stack:{version}")
+          frigate = per_arch(f"ghcr.io/blakeblackshear/frigate:{os.environ['FRIGATE_VERSION']}")
+          mosquitto = index_digest(os.environ["MOSQUITTO_IMAGE"])
+
+          lines = {
+              "cctv_amd64": f"ghcr.io/{owner}/cctv-stack@{cctv['amd64']}",
+              "cctv_arm64": f"ghcr.io/{owner}/cctv-stack@{cctv['arm64']}",
+              "frigate_amd64": f"ghcr.io/blakeblackshear/frigate@{frigate['amd64']}",
+              "frigate_arm64": f"ghcr.io/blakeblackshear/frigate@{frigate['arm64']}",
+              "mosquitto": f"{os.environ['MOSQUITTO_IMAGE'].split(':')[0]}@{mosquitto}",
+          }
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
+              for key, value in lines.items():
+                  handle.write(f"{key}={value}\n")
+          print("\n".join(f"{k}={v}" for k, v in lines.items()))
+          PY
+
+      - name: Assemble the bundle
+        env:
+          RELEASE_VERSION: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          uv run cctv-release bundle \
+            --repo . \
+            --out dist \
+            --version "${RELEASE_VERSION#v}" \
+            --frigate-version "$FRIGATE_VERSION" \
+            --frigate-contract-verified "$FRIGATE_CONTRACT_VERIFIED" \
+            --frigate-amd64 "${{ steps.digests.outputs.frigate_amd64 }}" \
+            --frigate-arm64 "${{ steps.digests.outputs.frigate_arm64 }}" \
+            --mosquitto "${{ steps.digests.outputs.mosquitto }}" \
+            --image-amd64 "${{ steps.digests.outputs.cctv_amd64 }}" \
+            --image-arm64 "${{ steps.digests.outputs.cctv_arm64 }}"
+
+      # The allowlist is a statement of intent; this is a statement about what happened.
+      - name: Verify the built artefact
+        run: |
+          set -euo pipefail
+          uv run cctv-release inspect "dist/cctv-stack-${GITHUB_REF_NAME#v}.tar.gz"
+
+      - uses: sigstore/cosign-installer@v3
+
+      - name: Sign the checksums
+        run: |
+          set -euo pipefail
+          cosign sign-blob --yes \
+            --output-signature dist/SHA256SUMS.sig \
+            --output-certificate dist/SHA256SUMS.pem \
+            dist/SHA256SUMS
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cctv-stack-bundle
+          path: |
+            dist/cctv-stack-*.tar.gz
+            dist/SHA256SUMS
+            dist/SHA256SUMS.sig
+            dist/SHA256SUMS.pem
+          if-no-files-found: error
+          retention-days: 30
+
   release:
     name: GitHub Release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: dist
+    needs: [dist, bundle]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -187,6 +344,11 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: cctv-stack-dist
+          path: dist
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: cctv-stack-bundle
           path: dist
 
       - uses: softprops/action-gh-release@v2

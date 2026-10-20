@@ -87,6 +87,7 @@ CLIP_STATES = frozenset(
         "SKIPPED_BY_POLICY",
         "DELETED_LOCAL",
         "EXPIRED_CLOUD",
+        "PURGED",
         "FORCE_DELETED",
     }
 )
@@ -105,6 +106,10 @@ VALID_TRANSITIONS = frozenset(
         ("PENDING", "SKIPPED_BY_POLICY"),
         ("UPLOADED", "DELETED_LOCAL"),
         ("UPLOADED", "EXPIRED_CLOUD"),
+        # ADR-0023: the second copy. Either half-gone state can reach PURGED, which is the
+        # only state that means "neither copy exists".
+        ("DELETED_LOCAL", "PURGED"),
+        ("EXPIRED_CLOUD", "PURGED"),
         ("FAILED_PERMANENT", "FORCE_DELETED"),
         ("SKIPPED_BY_POLICY", "DELETED_LOCAL"),
     }
@@ -112,7 +117,7 @@ VALID_TRANSITIONS = frozenset(
 
 #: States a clip can never leave. Re-marking one is a no-op rather than an error, because
 #: a crash between an upload and its record must be recoverable by simply redoing it.
-TERMINAL_STATES = frozenset({"DELETED_LOCAL", "EXPIRED_CLOUD", "FORCE_DELETED"})
+TERMINAL_STATES = frozenset({"PURGED", "FORCE_DELETED"})
 
 #: Retries before a transient failure becomes permanent. See lld/04 §5.1.
 #:
@@ -249,14 +254,10 @@ def _discover(migrations_dir: Path) -> dict[int, Path]:
     for path in sorted(migrations_dir.glob("*.sql")):
         prefix = path.stem.split("_", 1)[0]
         if not prefix.isdigit():
-            raise DbError(
-                f"{path.name}: migration files must be named NNNN_description.sql"
-            )
+            raise DbError(f"{path.name}: migration files must be named NNNN_description.sql")
         version = int(prefix)
         if version in found:
-            raise DbError(
-                f"Two migrations claim version {version}: {path.name} and more."
-            )
+            raise DbError(f"Two migrations claim version {version}: {path.name} and more.")
         found[version] = path
     return found
 
@@ -268,9 +269,7 @@ def schema_version(conn: sqlite3.Connection) -> int:
     ).fetchone()
     if row is None:
         return 0
-    row = conn.execute(
-        "SELECT COALESCE(MAX(version), 0) AS v FROM schema_migrations"
-    ).fetchone()
+    row = conn.execute("SELECT COALESCE(MAX(version), 0) AS v FROM schema_migrations").fetchone()
     return int(row["v"])
 
 
@@ -319,9 +318,7 @@ def migrate(
 
     for version in sorted(available):
         if version in applied:
-            if applied[version] != _checksum(
-                available[version].read_text(encoding="utf-8")
-            ):
+            if applied[version] != _checksum(available[version].read_text(encoding="utf-8")):
                 raise MigrationChecksumError(
                     f"{available[version].name} has changed since it was applied. An applied "
                     f"migration is history and must never be edited — add a new one instead."
@@ -381,9 +378,7 @@ def integrity_check(conn: sqlite3.Connection) -> None:
     """Verify structure and referential integrity. Called at startup (LLD R5)."""
     row = conn.execute("PRAGMA integrity_check").fetchone()
     if row is None or row[0] != "ok":
-        raise DbError(
-            f"PRAGMA integrity_check failed: {row[0] if row else 'no result'}"
-        )
+        raise DbError(f"PRAGMA integrity_check failed: {row[0] if row else 'no result'}")
 
     violations = conn.execute("PRAGMA foreign_key_check").fetchall()
     if violations:
@@ -455,9 +450,7 @@ def _validate_clip(clip: ClipRecord) -> None:
     if not clip.review_id:
         raise DbError("A clip needs a review_id: it is the dedup key (ADR-0016).")
     if clip.severity not in {"alert", "detection"}:
-        raise DbError(
-            f"severity must be 'alert' or 'detection', got {clip.severity!r}."
-        )
+        raise DbError(f"severity must be 'alert' or 'detection', got {clip.severity!r}.")
     if not clip.path:
         raise DbError("A clip needs a path.")
     if clip.path.startswith("/"):
@@ -600,16 +593,18 @@ def ensure_camera(
 
 
 def _state_of(conn: sqlite3.Connection, clip_id: int) -> str:
-    row = conn.execute(
-        "SELECT upload_state FROM clips WHERE id = ?", (clip_id,)
-    ).fetchone()
+    row = conn.execute("SELECT upload_state FROM clips WHERE id = ?", (clip_id,)).fetchone()
     if row is None:
         raise DbError(f"No clip with id {clip_id}.")
     return str(row["upload_state"])
 
 
 def _require_transition(current: str, target: str, clip_id: int) -> None:
-    if current == target and target in TERMINAL_STATES | {"UPLOADED"}:
+    if current == target and target in TERMINAL_STATES | {
+        "UPLOADED",
+        "DELETED_LOCAL",
+        "EXPIRED_CLOUD",
+    }:
         return  # idempotent re-marking; a crash must be recoverable by redoing the work
     if (current, target) not in VALID_TRANSITIONS:
         raise IllegalTransitionError(
@@ -754,9 +749,9 @@ def mark_transient_failure(
         _require_transition(current, "RETRY_WAIT", clip_id)
 
         attempts = int(
-            conn.execute(
-                "SELECT attempts FROM clips WHERE id = ?", (clip_id,)
-            ).fetchone()["attempts"]
+            conn.execute("SELECT attempts FROM clips WHERE id = ?", (clip_id,)).fetchone()[
+                "attempts"
+            ]
         )
         target = "FAILED_PERMANENT" if attempts >= max_attempts else "RETRY_WAIT"
 
@@ -880,9 +875,7 @@ def set_watermark(
                 1 if succeeded else 0,
             ),
         )
-        row = conn.execute(
-            "SELECT watermark FROM sweep_state WHERE name = ?", (name,)
-        ).fetchone()
+        row = conn.execute("SELECT watermark FROM sweep_state WHERE name = ?", (name,)).fetchone()
         return float(row["watermark"]) if row and row["watermark"] is not None else 0.0
 
 
@@ -1132,9 +1125,7 @@ def last_successful_upload_at(conn: sqlite3.Connection) -> Instant | None:
     return None if row is None or row["at"] is None else float(row["at"])
 
 
-def stored_clip_checks(
-    conn: sqlite3.Connection, *, limit: int = 1000
-) -> list[sqlite3.Row]:
+def stored_clip_checks(conn: sqlite3.Connection, *, limit: int = 1000) -> list[sqlite3.Row]:
     """Rows whose local file must exist, for the `local_files_readable` health check.
 
     Bounded on purpose: the check exists to catch a mount that went away or a volume that
@@ -1195,9 +1186,7 @@ def skip_by_policy(
         return int(changed)
 
 
-def release_lease(
-    conn: sqlite3.Connection, *, clip_id: int, now: Instant | None = None
-) -> bool:
+def release_lease(conn: sqlite3.Connection, *, clip_id: int, now: Instant | None = None) -> bool:
     """UPLOADING → PENDING on a clean shutdown, so the retry is immediate.
 
     Leases expire on their own, so this is an optimisation rather than a correctness
@@ -1309,7 +1298,14 @@ def reset_failed_permanent(
 #: This is the primary guard behind [INV-1]. Written as `upload_state NOT IN ('PENDING', …)`
 #: every state added later would be deletable by default; naming the permitted states means a
 #: new one is safe until somebody deliberately adds it here and considers the consequences.
-LOCAL_EXPIRY_STATES: frozenset[str] = frozenset({"UPLOADED", "SKIPPED_BY_POLICY"})
+#: States whose **local file** may still be removed. `EXPIRED_CLOUD` is here because the cloud
+#: copy is already gone and the file is now the only one — deleting it is the point of
+#: `local_days`, and it ends in `PURGED` (ADR-0023).
+LOCAL_EXPIRY_STATES: frozenset[str] = frozenset({"UPLOADED", "SKIPPED_BY_POLICY", "EXPIRED_CLOUD"})
+
+#: States whose **cloud object** may still be removed. `DELETED_LOCAL` is here for the mirror
+#: reason: the local file is gone, so expiring the object is the last step.
+CLOUD_EXPIRY_STATES: frozenset[str] = frozenset({"UPLOADED", "DELETED_LOCAL"})
 
 #: The finding kinds the schema accepts (migrations 0002 and 0004, `lld/05` §5.1). Kept here
 #: so a typo fails with a message naming the accepted values rather than as a bare CHECK
@@ -1409,11 +1405,13 @@ def cloud_expiry_batch(
     `uploaded_at` gives every object its full life, and it is the same base time the provider's
     `daysFromUploadingToHiding` rule uses, so the two mechanisms agree.
 
-    `cloud_deleted_at IS NULL` keeps a re-run idempotent; `upload_state = 'UPLOADED'` keeps a
-    clip that never uploaded out of a cloud deletion entirely, which is the one thing that
-    would lose the only copy.
+    `cloud_deleted_at IS NULL` keeps a re-run idempotent, and the state filter is
+    `CLOUD_EXPIRY_STATES` — a clip that still has an object (ADR-0023): `UPLOADED` for the usual
+    case, `DELETED_LOCAL` when the local file has already gone and the object is the last copy.
+    A clip that never uploaded is in neither set, which is the one thing that would lose data.
     """
-    params: list[object] = [camera, cutoff]
+    placeholders = ",".join("?" * len(CLOUD_EXPIRY_STATES))
+    params: list[object] = [camera, *sorted(CLOUD_EXPIRY_STATES), cutoff]
     cursor = ""
     if after is not None:
         cursor = "AND (uploaded_at > ? OR (uploaded_at = ? AND id > ?))"
@@ -1426,7 +1424,7 @@ def cloud_expiry_batch(
                    start_time, cloud_key, uploaded_at
               FROM clips
              WHERE camera = ?
-               AND upload_state = 'UPLOADED'
+               AND upload_state IN ({placeholders})
                AND uploaded_at IS NOT NULL
                AND uploaded_at < ?
                AND cloud_deleted_at IS NULL
@@ -1459,11 +1457,13 @@ def mark_cloud_deleted(
         raise DbError(f"No clip with id {clip_id}.")
     if row["cloud_deleted_at"] is not None:
         return False
-    _require_transition(str(row["upload_state"]), "EXPIRED_CLOUD", clip_id)
+    current = str(row["upload_state"])
+    # ADR-0023: if the local file is already gone, expiring the object leaves nothing behind.
+    target = "PURGED" if current == "DELETED_LOCAL" else "EXPIRED_CLOUD"
+    _require_transition(current, target, clip_id)
     conn.execute(
-        "UPDATE clips SET upload_state = 'EXPIRED_CLOUD', cloud_deleted_at = ?, updated_at = ? "
-        "WHERE id = ?",
-        (now, now, clip_id),
+        "UPDATE clips SET upload_state = ?, cloud_deleted_at = ?, updated_at = ? WHERE id = ?",
+        (target, now, now, clip_id),
     )
     return True
 
@@ -1489,11 +1489,13 @@ def mark_local_deleted(
         raise DbError(f"No clip with id {clip_id}.")
     if row["local_deleted_at"] is not None:
         return False
-    _require_transition(str(row["upload_state"]), "DELETED_LOCAL", clip_id)
+    current = str(row["upload_state"])
+    # ADR-0023: if the cloud object is already gone, removing the file leaves nothing behind.
+    target = "PURGED" if current == "EXPIRED_CLOUD" else "DELETED_LOCAL"
+    _require_transition(current, target, clip_id)
     conn.execute(
-        "UPDATE clips SET upload_state = 'DELETED_LOCAL', local_deleted_at = ?, updated_at = ? "
-        "WHERE id = ?",
-        (now, now, clip_id),
+        "UPDATE clips SET upload_state = ?, local_deleted_at = ?, updated_at = ? WHERE id = ?",
+        (target, now, now, clip_id),
     )
     return True
 
@@ -1546,28 +1548,29 @@ class OverdueSummary:
     oldest_overdue_s: float | None = None
 
 
-def overdue_local(
-    conn: sqlite3.Connection, *, camera: str, cutoff: Instant
-) -> OverdueSummary:
+def overdue_local(conn: sqlite3.Connection, *, camera: str, cutoff: Instant) -> OverdueSummary:
     """Count the clips one camera is holding past its retention window.
 
-    This filter **is** a negation, unlike the deletion query, and that is safe for the same
-    reason it is unsafe there: nothing is deleted from this result. The question is "what is
-    not finished?", and a state added later should count as unfinished until someone decides
-    otherwise.
+    The filter is `HELD_STATES`, an allow-list, and it became one with ADR-0023: while
+    `DELETED_LOCAL` and `EXPIRED_CLOUD` were terminal, "not uploaded and not terminal" meant
+    "held", which is the honest question — *what is the disk holding because INV-1 forbids
+    deleting it?* Once those two states stopped being terminal they described clips waiting for
+    their **second** deletion, and counting them as held would have inflated the number that
+    exists to show the cost of the invariant.
     """
+    placeholders = ",".join("?" * len(HELD_STATES))
     row = conn.execute(
-        """
+        f"""
         SELECT COUNT(*) AS n,
                COALESCE(SUM(size_bytes), 0) AS bytes,
                MIN(start_time) AS oldest
           FROM clips
          WHERE camera = ?
-           AND upload_state NOT IN ('UPLOADED', 'SKIPPED_BY_POLICY')
+           AND upload_state IN ({placeholders})
            AND start_time < ?
            AND local_deleted_at IS NULL
         """,
-        (camera, cutoff),
+        (camera, *HELD_STATES, cutoff),
     ).fetchone()
     return OverdueSummary(
         count=int(row["n"]),
@@ -1595,9 +1598,7 @@ def last_clip_per_camera(conn: sqlite3.Connection) -> dict[str, Instant]:
     """
     return {
         str(row["camera"]): float(row["last"])
-        for row in conn.execute(
-            "SELECT camera, MAX(start_time) AS last FROM clips GROUP BY camera"
-        )
+        for row in conn.execute("SELECT camera, MAX(start_time) AS last FROM clips GROUP BY camera")
     }
 
 

@@ -62,12 +62,12 @@ __all__ = [
     "DEFAULT_LOCAL_DAYS",
     "DEFAULT_RETIRE_GRACE_DAYS",
     "DEFAULT_RUN_INTERVAL_S",
-    "CloudRetention",
-    "CloudRun",
     "CleanupHealth",
     "CleanupPathError",
     "CleanupService",
     "CleanupSettings",
+    "CloudRetention",
+    "CloudRun",
     "LocalRetention",
     "RetentionRun",
     "main",
@@ -155,8 +155,8 @@ class CleanupSettings:
     disk_warn_pct: float
     disk_critical_pct: float
     log_level: str | None
-    #: Cloud retention (J2). `dry_run` above applies to both passes.
-    cloud_interval_s: float = DEFAULT_RUN_INTERVAL_S
+    #: Cloud retention (J2) runs in the same cycle as J1 (`lld/05` §8), so it has no cadence of
+    #: its own. `dry_run` above applies to both passes.
     delete_concurrency: int = DEFAULT_DELETE_CONCURRENCY
     cloud_delete_failure_critical: int = DEFAULT_CLOUD_DELETE_FAILURE_CRITICAL
 
@@ -176,11 +176,7 @@ class CleanupSettings:
         if self.clips_overdue_critical < self.clips_overdue_warn:
             return "CCTV_CLEANUP_OVERDUE_CRITICAL cannot be below CCTV_CLEANUP_OVERDUE_WARN."
         if self.disk_critical_pct >= self.disk_warn_pct:
-            return (
-                "CCTV_HEALTH_DISK_CRITICAL_PCT must be below CCTV_HEALTH_DISK_WARN_PCT."
-            )
-        if self.cloud_interval_s <= 0:
-            return "CCTV_CLEANUP_CLOUD_INTERVAL_S must be positive."
+            return "CCTV_HEALTH_DISK_CRITICAL_PCT must be below CCTV_HEALTH_DISK_WARN_PCT."
         if self.delete_concurrency < 1:
             return "CCTV_CLEANUP_DELETE_CONCURRENCY must be at least 1."
         return None
@@ -205,9 +201,7 @@ class CleanupSettings:
             data_dir=data_dir,
             cameras_path=Path(env.get("CCTV_CAMERAS", str(config_dir / "cameras.yml"))),
             db_path=Path(env.get("CCTV_DB", str(data_dir / "cctv.db"))),
-            run_interval_s=number(
-                "CCTV_CLEANUP_RUN_INTERVAL_S", DEFAULT_RUN_INTERVAL_S
-            ),
+            run_interval_s=number("CCTV_CLEANUP_RUN_INTERVAL_S", DEFAULT_RUN_INTERVAL_S),
             batch_size=int(number("CCTV_CLEANUP_BATCH_SIZE", DEFAULT_BATCH_SIZE)),
             dry_run=(env.get("DRY_RUN") or "").strip().lower() in {"1", "true", "yes"},
             retire_grace_days=int(
@@ -216,9 +210,7 @@ class CleanupSettings:
             health_host=(env.get("CCTV_HEALTH_HOST") or "0.0.0.0").strip(),
             health_port=int(number("CCTV_CLEANUP_HEALTH_PORT", DEFAULT_HEALTH_PORT)),
             scheduler_tick_s=number("CCTV_CLEANUP_TICK_S", DEFAULT_SCHEDULER_TICK_S),
-            clips_overdue_warn=int(
-                number("CCTV_CLEANUP_OVERDUE_WARN", DEFAULT_CLIPS_OVERDUE_WARN)
-            ),
+            clips_overdue_warn=int(number("CCTV_CLEANUP_OVERDUE_WARN", DEFAULT_CLIPS_OVERDUE_WARN)),
             clips_overdue_critical=int(
                 number("CCTV_CLEANUP_OVERDUE_CRITICAL", DEFAULT_CLIPS_OVERDUE_CRITICAL)
             ),
@@ -229,12 +221,7 @@ class CleanupSettings:
                 )
             ),
             disk_warn_pct=number("CCTV_HEALTH_DISK_WARN_PCT", DEFAULT_DISK_WARN_PCT),
-            disk_critical_pct=number(
-                "CCTV_HEALTH_DISK_CRITICAL_PCT", DEFAULT_DISK_CRITICAL_PCT
-            ),
-            cloud_interval_s=number(
-                "CCTV_CLEANUP_CLOUD_INTERVAL_S", DEFAULT_RUN_INTERVAL_S
-            ),
+            disk_critical_pct=number("CCTV_HEALTH_DISK_CRITICAL_PCT", DEFAULT_DISK_CRITICAL_PCT),
             delete_concurrency=int(
                 number("CCTV_CLEANUP_DELETE_CONCURRENCY", DEFAULT_DELETE_CONCURRENCY)
             ),
@@ -353,9 +340,7 @@ class LocalRetention:
         for row in cameras:
             camera = str(row["name"])
             retired = row["retired_at"] is not None
-            cutoff = self.cutoff_for(
-                camera, config=config, retired=retired, now=started
-            )
+            cutoff = self.cutoff_for(camera, config=config, retired=retired, now=started)
             self._expire_camera(conn, camera=camera, cutoff=cutoff, totals=totals)
 
         finished = self._clock()
@@ -376,9 +361,7 @@ class LocalRetention:
         # every line on the runs that matter.
         return run
 
-    def _expire_camera(
-        self, conn: Any, *, camera: str, cutoff: Instant, totals: _Counters
-    ) -> None:
+    def _expire_camera(self, conn: Any, *, camera: str, cutoff: Instant, totals: _Counters) -> None:
         cursor: tuple[float, int] | None = None
         while True:
             batch = db.local_expiry_batch(
@@ -439,9 +422,7 @@ class LocalRetention:
             return
 
         try:
-            target = resolve_within_clips_dir(
-                self._settings.clips_dir, str(row["path"])
-            )
+            target = resolve_within_clips_dir(self._settings.clips_dir, str(row["path"]))
         except CleanupPathError as exc:
             # Guard 4. A poisoned path is a serious finding, not a crash: refuse this clip,
             # report it, and keep the rest of the run moving.
@@ -610,22 +591,16 @@ class CloudRetention:
             return CloudRun(disabled=True, started_at=started, finished_at=started)
 
         cameras = db.known_cameras(conn)
-        run = CloudRun(
-            cameras=len(cameras), dry_run=self._settings.dry_run, started_at=started
-        )
+        run = CloudRun(cameras=len(cameras), dry_run=self._settings.dry_run, started_at=started)
         for row in cameras:
             camera = str(row["name"])
             retired = row["retired_at"] is not None
-            cutoff = self.cutoff_for(
-                camera, config=config, retired=retired, now=started
-            )
+            cutoff = self.cutoff_for(camera, config=config, retired=retired, now=started)
             self._expire_camera(conn, camera=camera, cutoff=cutoff, run=run)
         run.finished_at = self._clock()
         return run
 
-    def _expire_camera(
-        self, conn: Any, *, camera: str, cutoff: Instant, run: CloudRun
-    ) -> None:
+    def _expire_camera(self, conn: Any, *, camera: str, cutoff: Instant, run: CloudRun) -> None:
         cursor: tuple[float, int] | None = None
         while True:
             batch = db.cloud_expiry_batch(
@@ -671,9 +646,7 @@ class CloudRetention:
         except storage.StorageError as exc:
             return exc
 
-    def _record(
-        self, conn: Any, clip: Any, outcome: Any, *, run: CloudRun, camera: str
-    ) -> None:
+    def _record(self, conn: Any, clip: Any, outcome: Any, *, run: CloudRun, camera: str) -> None:
         clip_id = int(clip["id"])
         now = self._clock()
 
@@ -684,7 +657,7 @@ class CloudRetention:
             "SELECT upload_state, cloud_deleted_at, size_bytes FROM clips WHERE id = ?",
             (clip_id,),
         ).fetchone()
-        if row is None or str(row["upload_state"]) != "UPLOADED":
+        if row is None or str(row["upload_state"]) not in db.CLOUD_EXPIRY_STATES:
             return
         if row["cloud_deleted_at"] is not None:
             return
@@ -933,8 +906,7 @@ class CleanupHealth:
                     ):
                         oldest_start = summary.oldest_start_time
                     if summary.oldest_overdue_s is not None and (
-                        oldest_overdue is None
-                        or summary.oldest_overdue_s > oldest_overdue
+                        oldest_overdue is None or summary.oldest_overdue_s > oldest_overdue
                     ):
                         oldest_overdue = summary.oldest_overdue_s
             finally:
@@ -955,9 +927,7 @@ class CleanupHealth:
             detail = f"{detail}, oldest overdue by {_human(summary.oldest_overdue_s)}"
 
         if summary.count == 0:
-            return health.Check(
-                name="clips_overdue_retention", state=health.HEALTHY, detail=detail
-            )
+            return health.Check(name="clips_overdue_retention", state=health.HEALTHY, detail=detail)
 
         too_old = summary.oldest_overdue_s is not None and summary.oldest_overdue_s > (
             self._settings.overdue_age_critical_days * SECONDS_PER_DAY
@@ -1224,9 +1194,7 @@ def _install_signal_handlers(stop: threading.Event) -> None:
 
     def request_stop(signum: int, _frame: object) -> None:
         if not stop.is_set():
-            logger.info(
-                "shutdown requested", extra={"reason": signal.Signals(signum).name}
-            )
+            logger.info("shutdown requested", extra={"reason": signal.Signals(signum).name})
         stop.set()
 
     for signum in (signal.SIGTERM, signal.SIGINT):

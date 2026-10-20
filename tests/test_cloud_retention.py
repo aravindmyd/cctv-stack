@@ -15,11 +15,10 @@ import pytest
 
 from cctv import config, db, health, timeutil
 from cctv.cleanup import (
-    CloudRetention,
     CleanupHealth,
     CleanupService,
     CleanupSettings,
-    main,
+    CloudRetention,
 )
 from cctv.storage import (
     AdapterHealth,
@@ -70,9 +69,7 @@ class FakeAdapter:
     def put_object(self, **kwargs: Any) -> PutResult:  # pragma: no cover - unused
         raise AssertionError("retention must never upload")
 
-    def head_object(
-        self, *, key: str
-    ) -> ObjectInfo | None:  # pragma: no cover - unused
+    def head_object(self, *, key: str) -> ObjectInfo | None:  # pragma: no cover - unused
         return None
 
     def list_objects(self, **kwargs: Any) -> Any:  # pragma: no cover - unused
@@ -141,8 +138,7 @@ class Env:
                     review_id=review_id,
                     camera=CAMERA,
                     severity="alert",
-                    start_time=NOW
-                    - (start_days_ago if start_days_ago is not None else 90) * DAY,
+                    start_time=NOW - (start_days_ago if start_days_ago is not None else 90) * DAY,
                     end_time=NOW
                     - (start_days_ago if start_days_ago is not None else 90) * DAY
                     + 20,
@@ -154,9 +150,7 @@ class Env:
                 if cloud_key == "auto"
                 else cloud_key
             )
-            uploaded_at = (
-                None if uploaded_days_ago is None else NOW - uploaded_days_ago * DAY
-            )
+            uploaded_at = None if uploaded_days_ago is None else NOW - uploaded_days_ago * DAY
             conn.execute(
                 "UPDATE clips SET upload_state = ?, cloud_key = ?, uploaded_at = ? WHERE id = ?",
                 (state, key, uploaded_at, clip_id),
@@ -169,9 +163,7 @@ class Env:
     def row(self, clip_id: int) -> Any:
         conn = db.open_db(self.db_path, readonly=True)
         try:
-            return conn.execute(
-                "SELECT * FROM clips WHERE id = ?", (clip_id,)
-            ).fetchone()
+            return conn.execute("SELECT * FROM clips WHERE id = ?", (clip_id,)).fetchone()
         finally:
             conn.close()
 
@@ -218,9 +210,7 @@ def test_an_uploaded_clip_past_cloud_days_is_expired(env: Env) -> None:
     run = env.run()
 
     assert run.deleted == 1
-    assert env.adapter.deleted and env.adapter.deleted[0].startswith(
-        f"{LOCATION}/clips/"
-    )
+    assert env.adapter.deleted and env.adapter.deleted[0].startswith(f"{LOCATION}/clips/")
     row = env.row(clip_id)
     assert row["upload_state"] == "EXPIRED_CLOUD"
     assert row["cloud_deleted_at"] == NOW
@@ -261,9 +251,7 @@ def test_an_old_recording_uploaded_recently_keeps_its_full_life(env: Env) -> Non
 
 def test_a_clip_that_never_uploaded_is_never_considered(env: Env) -> None:
     pending = env.add_clip(review_id="e", state="PENDING", uploaded_days_ago=None)
-    failed = env.add_clip(
-        review_id="f", state="FAILED_PERMANENT", uploaded_days_ago=None
-    )
+    failed = env.add_clip(review_id="f", state="FAILED_PERMANENT", uploaded_days_ago=None)
 
     run = env.run()
 
@@ -412,31 +400,19 @@ def test_health_degrades_then_fails_on_failed_deletions(env: Env) -> None:
 # --- the service ------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "OQ-17: J1 runs first and moves the row to DELETED_LOCAL, which J2's query excludes, "
-        "so the cloud copy is never expired. The gap is the design question, not the code."
-    ),
-)
-def test_one_cycle_runs_local_then_cloud_and_records_both(env: Env) -> None:
-    env.add_clip(review_id="n", uploaded_days_ago=90)
-    service = CleanupService(
-        settings=env.settings, config=env.config, adapter=env.adapter
-    )
+def test_one_cycle_finishes_both_copies(env: Env) -> None:
+    """ADR-0023: J1 takes the file, J2 takes the object, and the row ends `PURGED`.
 
-    run = service.run_once()
+    This is the case the old state machine could not express — one copy gone by the time the
+    other pass runs.
+    """
+    clip_id = env.add_clip(review_id="n", uploaded_days_ago=90)
+
+    run = CleanupService(settings=env.settings, config=env.config, adapter=env.adapter).run_once()
 
     assert run.cloud is not None
     assert run.cloud.deleted == 1
-    conn = db.open_db(env.db_path, readonly=True)
-    try:
-        note = conn.execute(
-            "SELECT last_note FROM sweep_state WHERE name = 'cleanup_local'"
-        ).fetchone()[0]
-    finally:
-        conn.close()
-    assert "cloud_deleted=1" in note
+    assert env.row(clip_id)["upload_state"] == "PURGED"
 
 
 def test_the_service_without_a_bucket_reports_cloud_disabled(env: Env) -> None:

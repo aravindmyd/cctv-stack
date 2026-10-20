@@ -295,9 +295,10 @@ stateDiagram-v2
     PENDING --> SKIPPED_BY_POLICY: cloud backup disabled for this camera
     UPLOADED --> DELETED_LOCAL: local retention expired
     UPLOADED --> EXPIRED_CLOUD: cloud retention expired, object deleted
+    DELETED_LOCAL --> PURGED: cloud retention expired, object deleted
+    EXPIRED_CLOUD --> PURGED: local retention expired
     FAILED_PERMANENT --> FORCE_DELETED: operator force-deletes
-    DELETED_LOCAL --> [*]
-    EXPIRED_CLOUD --> [*]
+    PURGED --> [*]
     SKIPPED_BY_POLICY --> DELETED_LOCAL: local retention expired
     FORCE_DELETED --> [*]
 ```
@@ -312,8 +313,9 @@ stateDiagram-v2
 | `UPLOADED` | Object verified in cloud | Yes | Yes | Yes |
 | `FAILED_PERMANENT` | Will not retry without intervention | Yes | No | **No** — held, alerting |
 | `SKIPPED_BY_POLICY` | `retention.upload: false` for this camera | Yes | No (by intent) | Yes |
-| `DELETED_LOCAL` | Local file removed; cloud copy exists | No | Yes | n/a |
-| `EXPIRED_CLOUD` | Both copies gone, by policy | No | No | n/a |
+| `DELETED_LOCAL` | Local file removed; the cloud object may still exist | No | Maybe | n/a |
+| `EXPIRED_CLOUD` | Cloud object removed; the local file may still exist | Maybe | No | **Yes** |
+| `PURGED` | Both copies gone, by policy — terminal | No | No | n/a |
 | `FORCE_DELETED` | Operator removed an un-uploaded clip | No | No | n/a |
 
 The rightmost column is [INV-1](../invariants.md) expressed as a table. It is the
@@ -332,6 +334,8 @@ single most important table in this document.
 | `PENDING` | `SKIPPED_BY_POLICY` | Camera has `retention.upload: false` | Emit `info`; never alerts |
 | `UPLOADED` | `DELETED_LOCAL` | Local retention expired | Unlink file + sidecar, then update row |
 | `UPLOADED` | `EXPIRED_CLOUD` | Cloud retention expired | Delete object, then update row |
+| `DELETED_LOCAL` | `PURGED` | Cloud retention expired | Delete object, then update row |
+| `EXPIRED_CLOUD` | `PURGED` | Local retention expired | Unlink file + sidecar, then update row |
 | `FAILED_PERMANENT` | `FORCE_DELETED` | Explicit operator action with a reason | Audit `system_events` with the reason; requires `--force` and the exact clip id |
 
 **Every other transition is invalid and must be rejected in code**, not merely

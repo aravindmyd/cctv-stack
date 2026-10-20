@@ -315,7 +315,10 @@ def test_a_deletable_state_does_not_make_every_state_deletable(env: Env) -> None
     rather than a promise: adding a state to `CLIP_STATES` without adding it to
     `LOCAL_EXPIRY_STATES` cannot make it deletable.
     """
-    assert frozenset({"UPLOADED", "SKIPPED_BY_POLICY"}) == db.LOCAL_EXPIRY_STATES
+    # ADR-0023 added EXPIRED_CLOUD: the cloud copy is gone, so the file is the only one left.
+    assert frozenset({"UPLOADED", "SKIPPED_BY_POLICY", "EXPIRED_CLOUD"}) == (db.LOCAL_EXPIRY_STATES)
+    # The safety point is unchanged: a clip whose upload has not finished is never deletable.
+    assert db.LOCAL_EXPIRY_STATES.isdisjoint(db.HELD_STATES)
     assert db.LOCAL_EXPIRY_STATES <= db.CLIP_STATES
 
     # A real state outside the permitted set is not returned by the query, even though it is

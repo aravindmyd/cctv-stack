@@ -15,10 +15,24 @@ network. Turning the UI login on cannot break clip creation or uploads.
 | Who can open the UI | Any process that can reach `127.0.0.1:8971` | Only someone with the password |
 | Network exposure | None; the port is bound to loopback | None; same binding, with a login on top |
 | The clip worker, uploader, cleanup | Work | Work, unchanged |
+| **System page** (CPU, RAM, GPU, storage, UI logs) and the config editor | **`Access Denied`** | Open |
 | If it is misconfigured | There is no password to lose | A forgotten password locks humans out of the UI, not out of recordings |
 
 The login is access control for the person at the machine. It is not a network boundary:
 `8971` listens on loopback and speaks HTTPS only.
+
+!!! warning "Login off does not mean "logged in as admin""
+    In Frigate 0.18 an unauthenticated request gets the **`viewer`** role, not `admin`
+    (`frigate/api/auth.py`: `/api/auth` answers `202` with the headers `remote-user: viewer` and
+    `remote-role: viewer`). The UI's route table puts `/system` and `/config` behind
+    `requiredRoles: ["admin"]`, so clicking **CPU** on the System page (or opening the config
+    editor or the log viewer) lands on `/unauthorized` — *"Access Denied — You don't have
+    permission to view this page."* Nothing is broken; those pages simply require a login.
+
+    Verify the role without a browser: `curl -sk -i https://127.0.0.1:8971/api/auth | head -12`
+    prints `202` with `remote-role: viewer` while the login is off, and `401` once it is on.
+    Live view, review, explore, export and the Settings page work either way, and the stack's own
+    services keep using port `5000`, so nothing else in this file is affected.
 
 ## Turn it on
 

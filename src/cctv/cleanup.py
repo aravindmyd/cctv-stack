@@ -50,6 +50,7 @@ from typing import Any
 from . import db, health, paths, storage, timeutil
 from .config import CamerasConfig, ConfigError, load_cameras_config
 from .logging import configure_logging
+from .reconcile import CRITICAL_KINDS, Reconciler, ReconcileRun
 from .timeutil import Instant
 
 logger = logging.getLogger(__name__)
@@ -93,6 +94,14 @@ DEFAULT_DELETE_CONCURRENCY = 4
 #: How many consecutive failed cloud deletions make the health check unhealthy (lld/05 §9).
 DEFAULT_CLOUD_DELETE_FAILURE_CRITICAL = 5
 
+#: Reconciliation is daily (`lld/05` §5). It walks every object, so a shorter cadence would cost
+#: more than the drift it finds.
+DEFAULT_RECONCILE_INTERVAL_S = 86400.0
+
+#: Objects one reconciliation pass will look at. The cap is what keeps a pathological bucket from
+#: turning a daily job into a permanent one.
+DEFAULT_RECONCILE_MAX_OBJECTS = 20_000
+
 #: The cleanup health surface (hld.md §11 — internal only, loopback in compose).
 DEFAULT_HEALTH_PORT = 8083
 
@@ -116,6 +125,9 @@ EXIT_UNAVAILABLE = 69
 #: created: it already carries `last_run_at`, `last_success_at` and `consecutive_failures`,
 #: which is exactly what a staleness check needs.
 LAST_RUN_NAME = "cleanup_local"
+
+#: The `sweep_state` row recording when J3 last completed.
+RECONCILE_RUN_NAME = "cleanup_reconcile"
 
 #: The retention applied when a camera is not in `cameras.yml` — a retired camera. Mirrors
 #: `RetentionConfig`'s default, and is deliberately a copy rather than an import so that
@@ -156,8 +168,11 @@ class CleanupSettings:
     disk_critical_pct: float
     log_level: str | None
     #: Cloud retention (J2) runs in the same cycle as J1 (`lld/05` §8), so it has no cadence of
-    #: its own. `dry_run` above applies to both passes.
+    #: its own. `dry_run` above applies to all three passes.
     delete_concurrency: int = DEFAULT_DELETE_CONCURRENCY
+    #: Reconciliation (J3) is daily by default, and `0` disables it.
+    reconcile_interval_s: float = DEFAULT_RECONCILE_INTERVAL_S
+    reconcile_max_objects: int = DEFAULT_RECONCILE_MAX_OBJECTS
     cloud_delete_failure_critical: int = DEFAULT_CLOUD_DELETE_FAILURE_CRITICAL
 
     @property
@@ -179,6 +194,10 @@ class CleanupSettings:
             return "CCTV_HEALTH_DISK_CRITICAL_PCT must be below CCTV_HEALTH_DISK_WARN_PCT."
         if self.delete_concurrency < 1:
             return "CCTV_CLEANUP_DELETE_CONCURRENCY must be at least 1."
+        if self.reconcile_interval_s < 0:
+            return "CCTV_CLEANUP_RECONCILE_INTERVAL_S cannot be negative (0 disables it)."
+        if self.reconcile_max_objects < 1:
+            return "CCTV_CLEANUP_RECONCILE_MAX_OBJECTS must be at least 1."
         return None
 
     @classmethod
@@ -231,6 +250,12 @@ class CleanupSettings:
                     DEFAULT_CLOUD_DELETE_FAILURE_CRITICAL,
                 )
             ),
+            reconcile_interval_s=number(
+                "CCTV_CLEANUP_RECONCILE_INTERVAL_S", DEFAULT_RECONCILE_INTERVAL_S
+            ),
+            reconcile_max_objects=int(
+                number("CCTV_CLEANUP_RECONCILE_MAX_OBJECTS", DEFAULT_RECONCILE_MAX_OBJECTS)
+            ),
             log_level=env.get("CCTV_LOG_LEVEL") or None,
         )
 
@@ -282,6 +307,8 @@ class RetentionRun:
     finished_at: Instant = 0.0
     #: The cloud pass that followed this one, or `None` when it did not run.
     cloud: CloudRun | None = None
+    #: The reconciliation pass, when one was due in this cycle.
+    reconcile: ReconcileRun | None = None
 
     @property
     def duration_s(self) -> float:
@@ -637,7 +664,7 @@ class CloudRetention:
         if not key:
             # Derive rather than skip: INV-5 makes the key a function of the path, and a row
             # without one is a bug worth surviving rather than skipping.
-            key = paths.clip_cloud_key(self._location, PurePosixPath(str(clip["path"])))
+            key = paths.cloud_key_for_clip_path(self._location, str(clip["path"]))
             self._log("CLOUD_KEY_DERIVED", clip_id=int(clip["id"]), path=key)
         if self._settings.dry_run:
             return storage.DeleteResult(key=key, deleted=True)
@@ -788,6 +815,7 @@ class CleanupHealth:
             self._overdue_check(),
             self._disk_check(),
             self._storage_check(),
+            self._reconciliation_check(),
         )
         return health.HealthReport(
             component=COMPONENT,
@@ -1019,6 +1047,70 @@ class CleanupHealth:
             detail="deleting objects past retention and confirming each deletion",
         )
 
+    def _reconciliation_check(self) -> health.Check:
+        """Is the database still telling the truth about the bucket?
+
+        Disabled when reconciliation is off; stale when it has not run for twice its interval;
+        unhealthy when there are open findings that mean *we believe something false* — a row
+        claiming an object that is not there, a checksum that disagrees, a key that does not match
+        its path. Warnings alone are reported, not alarmed on: an orphan object costs money, but a
+        dangling row costs footage you thought was backed up.
+        """
+        interval = self._settings.reconcile_interval_s
+        if interval <= 0:
+            return health.Check(
+                name="reconciliation",
+                state=health.DISABLED,
+                detail="reconciliation is disabled (CCTV_CLEANUP_RECONCILE_INTERVAL_S=0)",
+            )
+        try:
+            conn = self._readonly()
+            try:
+                row = db.get_watermark(conn, RECONCILE_RUN_NAME)
+                critical = db.open_findings(conn, kinds=CRITICAL_KINDS)
+            finally:
+                conn.close()
+        except (sqlite3.Error, db.DbError, OSError) as exc:
+            return health.Check(
+                name="reconciliation",
+                state=health.UNKNOWN,
+                code="DB_UNAVAILABLE",
+                detail=f"cannot read the findings: {exc}",
+            )
+
+        if critical:
+            return health.Check(
+                name="reconciliation",
+                state=health.UNHEALTHY,
+                code="RECONCILE_FINDINGS",
+                detail=(
+                    f"{critical} unresolved finding(s) where the database and the bucket "
+                    f"disagree. See reconciliation_findings."
+                ),
+            )
+        if row is None or row["last_success_at"] is None:
+            # `UNKNOWN` still needs a code: alerting rules match on codes, not prose. "Has not
+            # run yet" is the strongest form of stale.
+            return health.Check(
+                name="reconciliation",
+                state=health.UNKNOWN,
+                code="RECONCILE_STALE",
+                detail="has not completed a pass yet",
+            )
+        age = self._clock() - float(row["last_success_at"])
+        if age >= 2 * interval:
+            return health.Check(
+                name="reconciliation",
+                state=health.DEGRADED,
+                code="RECONCILE_STALE",
+                detail=f"last completed {age / 3600:.0f}h ago; it is set to run daily",
+            )
+        return health.Check(
+            name="reconciliation",
+            state=health.HEALTHY,
+            detail=f"last completed {age / 3600:.1f}h ago, no critical findings",
+        )
+
     def _summary(self, checks: Sequence[health.Check]) -> str:
         by_name = {check.name: check for check in checks}
         return (
@@ -1072,6 +1164,16 @@ class CleanupService:
             logger=logger,
             clock=clock,
         )
+        self._reconciler = Reconciler(
+            data_dir=settings.data_dir,
+            location=config.site.location,
+            adapter=adapter,
+            batch_size=settings.batch_size,
+            max_objects=settings.reconcile_max_objects,
+            concurrency=settings.delete_concurrency,
+            logger=logger,
+            clock=clock,
+        )
 
     @property
     def cloud(self) -> CloudRetention:
@@ -1091,6 +1193,19 @@ class CleanupService:
             # is rebuilt with it rather than mutated.
             cloud_run = self._cloud.run_once(conn, self._config)
             run = replace(run, cloud=cloud_run)
+            if self._reconcile_due(conn, now=cloud_run.finished_at):
+                reconcile_run = self._reconciler.run_once(
+                    conn, self._config, dry_run=self._settings.dry_run
+                )
+                run = replace(run, reconcile=reconcile_run)
+                if not self._settings.dry_run:
+                    db.set_watermark(
+                        conn,
+                        name=RECONCILE_RUN_NAME,
+                        watermark=reconcile_run.finished_at,
+                        note=reconcile_run.summary()[:200],
+                        now=self._clock(),
+                    )
         except Exception as exc:
             # Recorded, then re-raised: the caller decides whether to keep going, and the
             # staleness check must see that a pass *failed* rather than never happened.
@@ -1117,6 +1232,20 @@ class CleanupService:
             now=self._clock(),
         )
         return run
+
+    def _reconcile_due(self, conn: Any, *, now: Instant) -> bool:
+        """Daily by default (`lld/05` §5), and the watermark is the record of when it last ran.
+
+        `0` disables reconciliation entirely. Anything else: due when there is no watermark, or
+        when the last successful one is older than the interval.
+        """
+        interval = self._settings.reconcile_interval_s
+        if interval <= 0:
+            return False
+        row = db.get_watermark(conn, RECONCILE_RUN_NAME)
+        if row is None or row["last_success_at"] is None:
+            return True
+        return (now - float(row["last_success_at"])) >= interval
 
     def run(self, stop: threading.Event) -> None:
         """Pass immediately, then on the interval, until asked to stop.

@@ -52,6 +52,7 @@ __all__ = [
     "PathError",
     "candidate_relpaths",
     "clip_cloud_key",
+    "cloud_key_for_clip_path",
     "colliding_relpath",
     "collision_suffix",
     "date_parts",
@@ -205,6 +206,23 @@ def clip_cloud_key(location: str, relpath: PurePosixPath) -> str:
     """
     location = validate_location(location)
     return f"{location}/{CLOUD_CLIPS_PREFIX}/{_as_posix(relpath)}"
+
+
+def cloud_key_for_clip_path(location: str, clip_path: str | PurePosixPath) -> str:
+    """The object key for a `clips.path` value, which already carries the `clips/` prefix.
+
+    One function, because the two shapes are easy to confuse: `clip_cloud_key` takes a path
+    *under* `clips/`, while a row's `path` includes `clips/` itself. Passing the row's path to
+    `clip_cloud_key` produces `<location>/clips/clips/...` — which nothing reads, so it fails as
+    a missing object rather than as a visible error. This strips the prefix and refuses anything
+    that does not start with it.
+    """
+    parts = PurePosixPath(_as_posix(clip_path)).parts
+    if not parts or parts[0] != CLOUD_CLIPS_PREFIX:
+        raise PathError(
+            f"{clip_path!r} is not a clip path: it must start with {CLOUD_CLIPS_PREFIX!r}/."
+        )
+    return clip_cloud_key(location, PurePosixPath(*parts[1:]))
 
 
 def _as_posix(value: PurePosixPath | str) -> str:

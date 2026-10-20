@@ -21,7 +21,7 @@ nothing from this directory. A new agent should start with [`../AGENTS.md`](../A
 |---|---|
 | Product requirements | ✅ Complete — [`prd.md`](prd.md) |
 | Architecture and design | 📐 **Written, awaiting owner review** |
-| Implementation | ✅ **M1–M3 built, M4 J1 and J2 built, M5 and M6 built, M7 backup/upgrade built** — detect → materialise → durable upload → local retention → aggregate status → guided install → backup and upgrade |
+| Implementation | ✅ **M1–M3 built, M4 J1, J2 and J3 built, M5 and M6 built, M7 backup/upgrade built** — detect → materialise → durable upload → local retention → aggregate status → guided install → backup and upgrade |
 | Release | ✅ **0.7.0** — published to PyPI and GHCR |
 | Client-site packaging | 📐 |
 | Current problems | 📐 — [`now.md`](now.md) |

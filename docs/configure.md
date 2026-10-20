@@ -11,6 +11,19 @@ Two files, and the split between them is worth keeping:
 generated from it, and anything you edit in `config/frigate/config.yml` is overwritten the
 next time the stack starts.
 
+You do not have to write either file by hand. The install interview does it, with the same
+validation the stack uses:
+
+```bash
+docker compose run --rm --no-deps init cctv-init
+```
+
+It asks for the location, timezone, each camera's name and RTSP URLs, and optional B2
+credentials, then writes both files — `.env` as `0600`, secrets never echoed. It will not
+replace a `cameras.yml` you have edited unless you pass `--force`, so it is safe to re-run
+to change the site name or add the cloud bucket. Everything below is for the cases the
+interview does not cover.
+
 ## A minimal `cameras.yml`
 
 ```yaml

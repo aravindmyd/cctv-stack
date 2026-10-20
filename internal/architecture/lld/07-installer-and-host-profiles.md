@@ -3,12 +3,17 @@
 **Implements:** [INV-11](../invariants.md), PRD §3 and §15
 **Status:** 📐 draft
 
-> **Implementation status (2026-10-18).** §4 (host detection) and §5 (profiles, §5.1 `shm_size`)
+> **Implementation status (2026-10-20).** §4 (host detection) and §5 (profiles, §5.1 `shm_size`)
 > are built in `src/cctv/host.py`, with `cctv-host` as the CLI and `install.sh` running it in the
 > image before starting anything. Detection degrades to `unknown` rather than guessing, and an
-> unsupported host exits 78 before a pull. **Not built yet:** the interview (§6), cloud
-> provisioning (§7), `doctor.sh` (§10), `uninstall.sh` (§11), and the signed-bundle paths
-> (M6.19–M6.24). The profile table is data in `PROFILES`, so adding a row needs no code change.
+> unsupported host exits 78 before a pull. **§6 (the interview)** is built as `cctv-init`: it
+> prompts for location, timezone, cameras and optional B2 credentials, validates the generated
+> `cameras.yml` through the real loader before replacing it, writes `.env` at `0600`, redacts
+> credentials from everything it prints, and supports `--non-interactive`, `--force`, `--print`
+> and a live B2 credential test (`--no-test` to skip). §8's start order is built; §8.2's
+> per-component verification is `cctv-doctor`. **Not built yet:** cloud provisioning (§7), test
+> notifications (§6.2), the Telegram channel, and the signed-bundle paths (M6.19–M6.24). The
+> profile table is data in `PROFILES`, so adding a row needs no code change.
 
 Making a new machine into a working CCTV installation with one command, on hardware
 we have never seen, without the operator needing to understand the internals.

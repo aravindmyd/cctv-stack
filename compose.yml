@@ -239,6 +239,20 @@ services:
       - ${CCTV_DATA_DIR:-./data}:/data
       - ./.env:/site/.env:ro
 
+  # The install interview (lld/07 §6). Runs once, when the operator is still there to answer
+  # questions, and writes the only two files a site owns. It has no env_file on purpose: it
+  # is the thing that *writes* .env, so requiring one would be circular.
+  init:
+    <<: *cctv-image
+    profiles: ["ops"]
+    restart: "no"
+    command: ["cctv-init"]
+    stdin_open: true
+    tty: true
+    volumes:
+      - ./config:/config
+      - ./.env:/site/.env
+
   # Brings the schema up to date between stopping the old workers and starting the new
   # containers (lld/09 §4.2). `update.sh` runs this with the *new* image, so the new code
   # performs the migration rather than the old code racing it.

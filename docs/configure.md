@@ -406,3 +406,26 @@ On a VM, `ls -l /dev/dri/renderD128` has to work first — the GPU must be passe
 (`hostpci0`) **and** the guest kernel must have `i915`. Debian's *cloud* kernel has no GPU
 drivers at all, so `linux-image-amd64` is required; see `docs/41` §6.4 in the home-lab repo for
 the full sequence.
+
+### Detection on the iGPU
+
+Decode is usually the smaller half. The detector is the larger one, so it has its own switch:
+
+```yaml
+frigate:
+  detector: openvino      # default: cpu
+```
+
+That replaces Frigate's built-in CPU detector with **OpenVINO pinned to `GPU`**. The device is
+explicit rather than `AUTO` on purpose — a silent fallback to CPU produces a machine that looks
+accelerated and is not, which is the failure the host profiles exist to prevent. Everything else
+is unchanged: same model, same object filters, same clips.
+
+Measured on a 3-camera site (2560×1440 mains, CPU detector, `vaapi` decode): Frigate sat at
+**~330 %** of a 4-core VM with the CPU detector, and **~11 %** once OpenVINO took inference on a
+UHD 630. The decode half is required first — the detector and the decoder share the same device,
+and `compose.gpu.yml` is what makes either possible.
+
+Verify from the log rather than the dashboard: `docker compose logs frigate | grep -i openvino`
+must print `Loading OpenVINO model … on device GPU`. `/api/stats` then reports the detector under
+`detectors.ov`, not `detectors.cpu`.

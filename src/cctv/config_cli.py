@@ -78,6 +78,13 @@ _HEADER = """\
 #: The same two streams also serve the Web UI.
 _RESTREAM_BASE = "rtsp://127.0.0.1:8554"
 
+#: `frigate.detector` → the `detectors:` block. `openvino` is pinned to `GPU`: the CPU variant
+#: is slower than the built-in detector it replaces, so it is not offered.
+_DETECTOR_BLOCKS: dict[str, dict[str, Any]] = {
+    "cpu": {"cpu": {"type": "cpu", "num_threads": 2}},
+    "openvino": {"ov": {"type": "openvino", "device": "GPU"}},
+}
+
 
 def _sub_stream(camera_name: str) -> str:
     """go2rtc stream name for a camera's sub stream. Deterministic, never user-supplied."""
@@ -115,7 +122,7 @@ def build_frigate_config(config: CamerasConfig) -> dict[str, Any]:
         "mqtt": {"enabled": True, "host": "mosquitto", "port": 1883},
         "go2rtc": {"streams": streams},
         "auth": {"enabled": config.frigate_auth.enabled},
-        "detectors": {"cpu": {"type": "cpu", "num_threads": 2}},
+        "detectors": _DETECTOR_BLOCKS[config.frigate_detector],
         "objects": {"track": sorted(tracked)},
     }
 

@@ -396,6 +396,16 @@ def test_hardware_acceleration_is_emitted_as_a_global_ffmpeg_arg(tmp_path: Path)
     assert out["ffmpeg"] == {"hwaccel_args": "preset-vaapi"}
 
 
+def test_openvino_detection_is_emitted_on_the_gpu(tmp_path: Path) -> None:
+    """Pinned, not `AUTO`: OpenVINO's AUTO would quietly fall back to the CPU on a host where
+    the device is missing, which is exactly the silent downgrade this stack refuses."""
+    text = "frigate:\n  detector: openvino\n" + BASE
+
+    out = build_frigate_config(make_config(tmp_path, text))
+
+    assert out["detectors"] == {"ov": {"type": "openvino", "device": "GPU"}}
+
+
 def test_the_generated_file_carries_no_top_level_timezone(tmp_path: Path) -> None:
     """Frigate 0.18 refuses the whole config when a top-level `timezone` is present
     (`Extra inputs are not permitted`) and then starts in safe mode with zero cameras —

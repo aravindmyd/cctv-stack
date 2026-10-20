@@ -289,6 +289,26 @@ def test_hwaccel_and_the_ui_login_can_coexist(tmp_path: Path) -> None:
     assert cfg.hwaccel_args() == "preset-vaapi"
 
 
+def test_object_detection_is_on_the_cpu_by_default(tmp_path: Path) -> None:
+    """The detector costs more than decode does, and a GPU detector on a machine without one
+    fails every inference rather than slowing down."""
+    assert load(tmp_path).frigate_detector == "cpu"
+
+
+def test_openvino_can_be_selected_for_the_igpu(tmp_path: Path) -> None:
+    cfg = load(tmp_path, "frigate:\n  detector: openvino\n" + BASE)
+
+    assert cfg.frigate_detector == "openvino"
+
+
+def test_an_unknown_detector_is_refused(tmp_path: Path) -> None:
+    """`ov` is Frigate 0.17's spelling and is rejected by 0.18's schema; accepting it here
+    would move the failure from validation to Frigate's start-up — where it silently falls
+    back to CPU after a warning nobody reads."""
+    with pytest.raises(ConfigError, match="cpu, openvino"):
+        load(tmp_path, "frigate:\n  detector: ov\n" + BASE)
+
+
 # --------------------------------------------------------------------------------------
 # Cross-field rules
 # --------------------------------------------------------------------------------------

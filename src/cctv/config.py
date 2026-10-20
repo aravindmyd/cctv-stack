@@ -178,6 +178,13 @@ HWACCEL_PRESETS: dict[str, str] = {
 }
 
 
+#: `frigate.detector` values. `openvino` means Frigate's OpenVINO detector on the **iGPU** —
+#: the device is fixed to GPU on purpose: OpenVINO on the CPU is strictly slower than the
+#: built-in CPU detector it would replace, so offering that combination would only be a way to
+#: make a machine worse while looking configured.
+FRIGATE_DETECTORS: frozenset[str] = frozenset({"cpu", "openvino"})
+
+
 @dataclass(frozen=True, slots=True)
 class CamerasConfig:
     site: SiteConfig
@@ -191,6 +198,9 @@ class CamerasConfig:
     #: the operator writes what the hardware is, and the mapping to Frigate's spelling lives
     #: in one place (`HWACCEL_PRESETS`).
     frigate_hwaccel: str = "off"
+    #: `cpu` or `openvino` (iGPU). Separate from `hwaccel` because they are different hardware
+    #: paths with different failure modes: decode can work while the detector has no model.
+    frigate_detector: str = "cpu"
 
     def hwaccel_args(self) -> str | None:
         """The `hwaccel_args` value to emit, or `None` when acceleration is off."""
@@ -295,6 +305,7 @@ def load_cameras_config(
     frigate_raw = data.get("frigate")
     frigate_auth = _parse_frigate_auth(frigate_raw)
     frigate_hwaccel = _parse_frigate_hwaccel(frigate_raw)
+    frigate_detector = _parse_frigate_detector(frigate_raw)
     defaults = data.get("defaults") or {}
     if not isinstance(defaults, Mapping):
         raise ConfigError(f"{source}: `defaults` must be a mapping.")
@@ -322,6 +333,7 @@ def load_cameras_config(
         min_headroom_days=min_headroom,
         frigate_auth=frigate_auth,
         frigate_hwaccel=frigate_hwaccel,
+        frigate_detector=frigate_detector,
     )
 
 
@@ -378,6 +390,25 @@ def _deep_merge(base: Mapping[str, Any], override: Mapping[str, Any]) -> dict[st
     return out
 
 
+def _parse_frigate_detector(data: Any) -> str:
+    """`frigate.detector` — where object detection runs.
+
+    `cpu` (the default) emits Frigate's built-in CPU detector. `openvino` emits the OpenVINO
+    detector pinned to `GPU`; the Value is deliberately not `auto`, because a silent fallback
+    to CPU is the failure the whole host-profile design exists to avoid.
+    """
+    if data is None:
+        return "cpu"
+    if not isinstance(data, Mapping):
+        raise ConfigError("frigate: must be a mapping with an `auth` key.")
+    value = data.get("detector", "cpu")
+    word = value.strip().lower() if isinstance(value, str) else ""
+    if word not in FRIGATE_DETECTORS:
+        allowed = ", ".join(sorted(FRIGATE_DETECTORS))
+        raise ConfigError(f"frigate.detector: {value!r} is not one of {allowed}.")
+    return word
+
+
 def _parse_frigate_auth(data: Any) -> FrigateAuthConfig:
     """`frigate.auth` — whether Frigate's own UI login is on.
 
@@ -388,7 +419,7 @@ def _parse_frigate_auth(data: Any) -> FrigateAuthConfig:
         return FrigateAuthConfig()
     if not isinstance(data, Mapping):
         raise ConfigError("frigate: must be a mapping with an `auth` key.")
-    _check_keys(data, frozenset({"auth", "hwaccel"}), where="frigate")
+    _check_keys(data, frozenset({"auth", "hwaccel", "detector"}), where="frigate")
 
     auth = data.get("auth") or {}
     if not isinstance(auth, Mapping):

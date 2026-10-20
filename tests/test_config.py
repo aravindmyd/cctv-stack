@@ -84,7 +84,8 @@ def test_unknown_key_error_names_the_key_and_where(tmp_path: Path) -> None:
 def test_camera_object_list_replaces_the_default(tmp_path: Path) -> None:
     cfg = load(
         tmp_path,
-        BASE + """\
+        BASE
+        + """\
   garage:
     rtsp:
       main: rtsp://192.168.1.51:554/stream1
@@ -125,9 +126,7 @@ def test_null_inside_defaults_falls_back_to_the_built_in_value(tmp_path: Path) -
     A "motion" block written as a single-line null is a realistic typo, and the two
     levels must not behave differently.
     """
-    text = BASE.replace(
-        "  clip:\n    pre_roll_s: 5\n    post_roll_s: 10\n", "  clip: null\n"
-    )
+    text = BASE.replace("  clip:\n    pre_roll_s: 5\n    post_roll_s: 10\n", "  clip: null\n")
     cfg = load(tmp_path, text)
     assert cfg.cameras["front-door"].clip.pre_roll_s == 5
     assert cfg.cameras["front-door"].clip.post_roll_s == 10
@@ -147,10 +146,7 @@ def test_env_reference_is_resolved(tmp_path: Path) -> None:
         ),
         environ={"CAM_USER": "admin", "CAM_PASS": "hunter2"},
     )
-    assert (
-        cfg.cameras["front-door"].rtsp_main
-        == "rtsp://admin:hunter2@192.168.1.50:554/stream1"
-    )
+    assert cfg.cameras["front-door"].rtsp_main == "rtsp://admin:hunter2@192.168.1.50:554/stream1"
 
 
 def test_missing_env_reference_is_refused(tmp_path: Path) -> None:
@@ -451,16 +447,12 @@ def test_bad_rtsp_scheme_is_refused(tmp_path: Path) -> None:
     with pytest.raises(ConfigError, match="rtsp://"):
         load(
             tmp_path,
-            BASE.replace(
-                "rtsp://192.168.1.50:554/stream1", "http://192.168.1.50/stream1"
-            ),
+            BASE.replace("rtsp://192.168.1.50:554/stream1", "http://192.168.1.50/stream1"),
         )
 
 
 def test_detection_on_main_stream_warns(tmp_path: Path) -> None:
-    cfg = load(
-        tmp_path, BASE.replace("      sub: rtsp://192.168.1.50:554/stream2\n", "")
-    )
+    cfg = load(tmp_path, BASE.replace("      sub: rtsp://192.168.1.50:554/stream2\n", ""))
     assert any("rtsp.sub" in w for w in cfg.warnings)
 
 
@@ -539,7 +531,8 @@ def test_the_site_timezone_is_not_pushed_into_frigates_config(tmp_path: Path) ->
 def test_disabled_camera_is_omitted_from_frigate(tmp_path: Path) -> None:
     cfg = load(
         tmp_path,
-        BASE + """\
+        BASE
+        + """\
   old-garage:
     enabled: false
     rtsp:
@@ -593,7 +586,8 @@ def test_every_enabled_mode_has_a_non_zero_window(tmp_path: Path, mode: str) -> 
 def test_multiple_cameras_do_not_leak_settings(tmp_path: Path) -> None:
     cfg = load(
         tmp_path,
-        BASE + """\
+        BASE
+        + """\
   garage:
     rtsp:
       main: rtsp://192.168.1.51:554/stream1

@@ -244,9 +244,7 @@ class CamerasConfig:
 # ---------------------------------------------------------------------------------------
 
 _ENV_RE = re.compile(r"\$\{(?P<name>[A-Za-z_][A-Za-z0-9_]*)\}")
-_TOP_LEVEL_KEYS = frozenset(
-    {"site", "frigate", "defaults", "cameras", "min_headroom_days"}
-)
+_TOP_LEVEL_KEYS = frozenset({"site", "frigate", "defaults", "cameras", "min_headroom_days"})
 _CAMERA_KEYS = frozenset(
     {
         "display_name",
@@ -355,11 +353,7 @@ def load_cameras_config(
         cameras[name] = _build_camera(name, merged, site, warnings, where)
 
     min_headroom = data.get("min_headroom_days", DEFAULT_MIN_HEADROOM_DAYS)
-    if (
-        not isinstance(min_headroom, int)
-        or isinstance(min_headroom, bool)
-        or min_headroom < 1
-    ):
+    if not isinstance(min_headroom, int) or isinstance(min_headroom, bool) or min_headroom < 1:
         raise ConfigError(f"{source}: `min_headroom_days` must be an integer >= 1.")
 
     return CamerasConfig(
@@ -391,17 +385,13 @@ def _interpolate(value: Any, environ: Mapping[str, str], *, where: str) -> Any:
 
         return _ENV_RE.sub(replace, value)
     if isinstance(value, Mapping):
-        return {
-            k: _interpolate(v, environ, where=f"{where}.{k}") for k, v in value.items()
-        }
+        return {k: _interpolate(v, environ, where=f"{where}.{k}") for k, v in value.items()}
     if isinstance(value, list):
         return [_interpolate(v, environ, where=f"{where}[]") for v in value]
     return value
 
 
-def _check_keys(
-    data: Mapping[str, Any], allowed: frozenset[str], *, where: str
-) -> None:
+def _check_keys(data: Mapping[str, Any], allowed: frozenset[str], *, where: str) -> None:
     unknown = sorted(set(data) - allowed)
     if unknown:
         raise ConfigError(
@@ -500,18 +490,14 @@ def _parse_frigate_auth(data: Any) -> FrigateAuthConfig:
         return FrigateAuthConfig()
     if not isinstance(data, Mapping):
         raise ConfigError("frigate: must be a mapping with an `auth` key.")
-    _check_keys(
-        data, frozenset({"auth", "hwaccel", "detector", "model"}), where="frigate"
-    )
+    _check_keys(data, frozenset({"auth", "hwaccel", "detector", "model"}), where="frigate")
 
     auth = data.get("auth") or {}
     if not isinstance(auth, Mapping):
         raise ConfigError("frigate.auth: must be a mapping with an `enabled` key.")
     _check_keys(auth, frozenset({"enabled"}), where="frigate.auth")
 
-    return FrigateAuthConfig(
-        enabled=_bool(auth.get("enabled", False), "frigate.auth.enabled")
-    )
+    return FrigateAuthConfig(enabled=_bool(auth.get("enabled", False), "frigate.auth.enabled"))
 
 
 def _parse_frigate_hwaccel(data: Any) -> str:
@@ -532,16 +518,12 @@ def _parse_frigate_hwaccel(data: Any) -> str:
     word = value.strip().lower()
     allowed = {"off", *HWACCEL_PRESETS}
     if word not in allowed:
-        raise ConfigError(
-            f"frigate.hwaccel: {value!r} is not one of {', '.join(sorted(allowed))}."
-        )
+        raise ConfigError(f"frigate.hwaccel: {value!r} is not one of {', '.join(sorted(allowed))}.")
     return word
 
 
 def _parse_site(data: Mapping[str, Any], warnings: list[str]) -> SiteConfig:
-    _check_keys(
-        data, frozenset({"location", "timezone", "display_timezone"}), where="site"
-    )
+    _check_keys(data, frozenset({"location", "timezone", "display_timezone"}), where="site")
 
     if "location" not in data:
         raise ConfigError("site.location is required.")
@@ -602,9 +584,7 @@ def _build_camera(
 
     rtsp = data.get("rtsp") or {}
     if not isinstance(rtsp, Mapping):
-        raise ConfigError(
-            f"{where}.rtsp must be a mapping with `main` and optional `sub`."
-        )
+        raise ConfigError(f"{where}.rtsp must be a mapping with `main` and optional `sub`.")
     _check_keys(rtsp, frozenset({"main", "sub"}), where=f"{where}.rtsp")
 
     rtsp_main = rtsp.get("main")
@@ -633,9 +613,7 @@ def _build_camera(
     # model cannot disagree about what an omitted `record:` block means (ADR-0022).
     mode = record_raw.get("mode", RecordConfig().mode)
     if mode not in RECORD_MODES:
-        raise ConfigError(
-            f"{where}.record.mode: {mode!r} is not one of {sorted(RECORD_MODES)}."
-        )
+        raise ConfigError(f"{where}.record.mode: {mode!r} is not one of {sorted(RECORD_MODES)}.")
 
     notify = _build_notify(data.get("notify") or {}, detect, where)
 
@@ -683,9 +661,7 @@ def _build_detect(data: Mapping[str, Any], where: str) -> DetectConfig:
         enabled=enabled,
         objects=objects,
         width=_int(data.get("width", 1280), f"{where}.detect.width", low=64, high=8192),
-        height=_int(
-            data.get("height", 720), f"{where}.detect.height", low=64, high=8192
-        ),
+        height=_int(data.get("height", 720), f"{where}.detect.height", low=64, high=8192),
         fps=_int(data.get("fps", 5), f"{where}.detect.fps", low=1, high=15),
         min_score=_float(
             data.get("min_score", 0.4), f"{where}.detect.min_score", low=0.0, high=1.0
@@ -704,15 +680,11 @@ def _build_clip(
 ) -> ClipConfig:
     _check_keys(
         data,
-        frozenset(
-            {"pre_roll_s", "post_roll_s", "visit_gap_s", "severities", "objects"}
-        ),
+        frozenset({"pre_roll_s", "post_roll_s", "visit_gap_s", "severities", "objects"}),
         where=f"{where}.clip",
     )
 
-    pre_roll = _float(
-        data.get("pre_roll_s", 5.0), f"{where}.clip.pre_roll_s", low=0.0, high=60.0
-    )
+    pre_roll = _float(data.get("pre_roll_s", 5.0), f"{where}.clip.pre_roll_s", low=0.0, high=60.0)
     if pre_roll > 30:
         warnings.append(
             f"{where}.clip.pre_roll_s is {pre_roll}s. Pre-roll costs storage on every "
@@ -724,9 +696,7 @@ def _build_clip(
     )
     unknown = sorted(set(severities) - SEVERITIES)
     if unknown:
-        raise ConfigError(
-            f"{where}.clip.severities: {unknown} not in {sorted(SEVERITIES)}."
-        )
+        raise ConfigError(f"{where}.clip.severities: {unknown} not in {sorted(SEVERITIES)}.")
     if not severities:
         raise ConfigError(
             f"{where}.clip.severities is empty: no severity would ever produce a clip."
@@ -789,15 +759,11 @@ def _build_snapshots(data: Mapping[str, Any], where: str) -> SnapshotsConfig:
     _check_keys(data, frozenset({"enabled", "retain_days"}), where=f"{where}.snapshots")
     return SnapshotsConfig(
         enabled=_bool(data.get("enabled", True), f"{where}.snapshots.enabled"),
-        retain_days=_int(
-            data.get("retain_days", 30), f"{where}.snapshots.retain_days", low=1
-        ),
+        retain_days=_int(data.get("retain_days", 30), f"{where}.snapshots.retain_days", low=1),
     )
 
 
-def _build_notify(
-    data: Mapping[str, Any], detect: DetectConfig, where: str
-) -> NotifyConfig:
+def _build_notify(data: Mapping[str, Any], detect: DetectConfig, where: str) -> NotifyConfig:
     _check_keys(data, frozenset({"enabled", "labels"}), where=f"{where}.notify")
     labels = _str_tuple(data.get("labels", ("person",)), f"{where}.notify.labels")
     not_tracked = sorted(set(labels) - set(detect.objects))
@@ -865,9 +831,7 @@ def _str_tuple(value: Any, where: str) -> tuple[str, ...]:
 # ---------------------------------------------------------------------------------------
 
 
-def to_frigate(
-    config: CamerasConfig, *, allow_short_headroom: bool = False
-) -> dict[str, Any]:
+def to_frigate(config: CamerasConfig, *, allow_short_headroom: bool = False) -> dict[str, Any]:
     """Generate Frigate's config from ours. Deterministic: same input, same output.
 
     **Partial on purpose.** This emits what the design has actually settled — the review

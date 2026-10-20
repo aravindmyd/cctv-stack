@@ -217,8 +217,7 @@ def build_frigate_config(config: CamerasConfig) -> dict[str, Any]:
         entry["objects"] = {
             "track": list(camera.detect.objects),
             "filters": {
-                label: {"min_score": camera.detect.min_score}
-                for label in camera.detect.objects
+                label: {"min_score": camera.detect.min_score} for label in camera.detect.objects
             },
         }
         entry["snapshots"] = {
@@ -231,9 +230,7 @@ def build_frigate_config(config: CamerasConfig) -> dict[str, Any]:
 
 def render(config: CamerasConfig, *, cameras_path: Path) -> str:
     """The full text of the generated config, header included."""
-    body = yaml.safe_dump(
-        build_frigate_config(config), sort_keys=False, default_flow_style=False
-    )
+    body = yaml.safe_dump(build_frigate_config(config), sort_keys=False, default_flow_style=False)
     return _HEADER.format(cameras_path=cameras_path) + body
 
 
@@ -307,18 +304,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    validate = sub.add_parser(
-        "validate", help="check the configuration without writing anything"
-    )
-    validate.add_argument(
-        "--cameras", type=Path, required=True, help="path to cameras.yml"
-    )
+    validate = sub.add_parser("validate", help="check the configuration without writing anything")
+    validate.add_argument("--cameras", type=Path, required=True, help="path to cameras.yml")
     validate.set_defaults(func=_cmd_validate)
 
     generate = sub.add_parser("generate", help="write Frigate's config")
-    generate.add_argument(
-        "--cameras", type=Path, required=True, help="path to cameras.yml"
-    )
+    generate.add_argument("--cameras", type=Path, required=True, help="path to cameras.yml")
     generate.add_argument("--out", type=Path, required=True, help="where to write it")
     generate.set_defaults(func=_cmd_generate)
 

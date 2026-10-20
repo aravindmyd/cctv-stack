@@ -229,15 +229,24 @@ downgrading the image after a schema migration is not supported, so keep the pre
 ## Removing the stack
 
 ```bash
-docker compose down
+./uninstall.sh            # stop and remove containers; keep data and config
+./uninstall.sh --images   # also remove the images this stack used
+./uninstall.sh --purge    # also remove config/ and the data directory
+./uninstall.sh --dry-run  # print what would happen, change nothing
 ```
 
-Containers stop and are removed. `data/`, `config/`, and `.env` are left in place, so
-starting the stack again resumes where it left off.
+Nothing is deleted unless you ask for it. `data/`, `config/` and `.env` survive a plain
+uninstall, so starting the stack again resumes where it left off.
 
-To remove everything, delete those three paths and decide what happens to the B2 bucket
-separately. If you leave a bucket behind, set a lifecycle rule or delete it; a bucket that
-no longer belongs to a running site is easy to forget and keeps billing.
+`--purge` asks you to **type the location name** (`CCTV_SITE`, for example `parents-home`)
+before it removes anything. A `--yes` flag is too easy to paste from a forum answer.
+
+What a purge still does not do: delete a single object from Backblaze B2. The bucket is not
+this script's business, and forgetting a bucket with no lifecycle rule attached is how a site
+keeps billing after it is gone. Empty it, or set a lifecycle rule, on purpose.
+
+If something is wrong but you are not ready to remove the stack, run `./scripts/doctor.sh`
+instead — it diagnoses without changing anything. See [Diagnose problems](doctor.md).
 
 ## Troubleshooting the first start
 

@@ -401,6 +401,12 @@ into a forum post is a worse outcome than the original problem.
 
 ## 11. `uninstall.sh`
 
+> **Implementation status (2026-10-20).** Built with `--images`, `--purge` and `--dry-run`.
+> `--purge` types the location name, refuses a resolved data directory that is `/`, `$HOME`,
+> `/data` or another system path, and never touches the bucket. `--remove-lifecycle` is
+> accepted and reports honestly that this build creates no lifecycle rule. 12 tests run the
+> script against a throwaway installation with a stub `docker`.
+
 ```text
 ./uninstall.sh                stop and remove containers; KEEP all data and config
 ./uninstall.sh --images       also remove images

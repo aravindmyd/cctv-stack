@@ -18,13 +18,29 @@ adds the four pieces it leaves to the operator:
 
 It is not a replacement for Frigate. It is the missing layer around it.
 
-**Current release: `0.5.1`.** Clips, B2 upload, local retention, the aggregate status page
-and alerting through Gatus/ntfy are implemented. Cloud retention and the one-command
-installer are not — see [`CONTRIBUTING.md`](CONTRIBUTING.md) for the exact state and roadmap.
+**Current release: `0.6.0`.** Clips, B2 upload, upload-aware local retention, the aggregate
+status page with Gatus/ntfy alerting, a guided one-command installer, `./scripts/doctor.sh`
+diagnosis, encrypted backups and `./update.sh` upgrades are implemented. Cloud retention is
+not — see [`CONTRIBUTING.md`](CONTRIBUTING.md) for the exact state and roadmap.
 
 ---
 
 ## Install
+
+The shortest path is one command, from a checkout:
+
+```bash
+git clone https://github.com/aravindmyd/cctv-stack.git
+cd cctv-stack
+./install.sh
+```
+
+It asks for the location, timezone, cameras and optional B2 credentials, validates the
+result through the same loader the services use, detects the host, starts the stack, and
+waits for Frigate. See [`docs/install.md`](docs/install.md) for the released-image path
+and the by-hand alternative.
+
+The Python package is usable on its own for the parts that read Frigate's API:
 
 ```bash
 pip install cctv-stack
@@ -47,10 +63,10 @@ pip install "cctv-stack[mqtt,storage]"
 ### Container image
 
 ```bash
-docker pull ghcr.io/aravindmyd/cctv-stack:0.5.1
+docker pull ghcr.io/aravindmyd/cctv-stack:0.6.0
 ```
 
-Tags published per release: `:0.5.1`, `:0.5`, and the commit tag `:sha-<short>`.
+Tags published per release: `:0.6.0`, `:0.6`, and the commit tag `:sha-<short>`.
 A moving `:edge` tag follows `master`. If the registry package is private, run
 `docker login ghcr.io` first. The image includes `ffmpeg`/`ffprobe`.
 
@@ -65,6 +81,10 @@ A moving `:edge` tag follows `master`. If the registry package is private, run
 | `cctv-cleanup` | Enforce local retention after a successful upload |
 | `cctv-status` | Serve the aggregate status page (`:8084/status`), health and metrics |
 | `cctv-host` | Detect this machine's host profile and Frigate's `shm_size` |
+| `cctv-init` | Answer the install questions and write `cameras.yml` and `.env` |
+| `cctv-doctor` | Diagnose a whole installation, read-only (`./scripts/doctor.sh`) |
+| `cctv-backup` | Encrypted config bundle, online database backup, verification |
+| `cctv-migrate` | Apply pending migrations between stopping and starting services |
 
 The four services are long-running and configuration-driven; they take no command-line
 arguments. Run them under systemd, Docker, or Compose.

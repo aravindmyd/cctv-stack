@@ -7,7 +7,7 @@ package, read [`README.md`](README.md) first.
 
 ## Project status
 
-**Current release: `0.5.1`.** This is the state the code is actually in, not the target
+**Current release: `0.6.0`.** This is the state the code is actually in, not the target
 design.
 
 | Capability | State |
@@ -16,8 +16,12 @@ design.
 | Upload to Backblaze B2, exactly once | ✅ built |
 | Local retention (upload-aware) | ✅ built |
 | Per-service health and metrics | ✅ built |
+| Aggregate status page and alerting | ✅ built — Gatus + ntfy |
+| Guided install (`./install.sh`) | ✅ built — interview, host detection, shm sizing |
+| Diagnosis (`./scripts/doctor.sh`) | ✅ built |
+| Backup and restore (`./backup.sh`) | ✅ built — config, database, manifest |
+| Upgrade and rollback (`./update.sh`) | ✅ built — backup, migrate, verify |
 | Cloud retention and reconciliation | ⬜ deferred |
-| Aggregate status page and alerting | ⬜ deferred |
 | One-command client installer and signed bundle | ⬜ deferred (M6) |
 | Backup, restore, upgrade | ⬜ deferred (M7) |
 

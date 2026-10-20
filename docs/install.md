@@ -79,7 +79,7 @@ already on disk and exits `78` naming the values that are still placeholders.
 ```ini
 # The published image. Pin the release you are installing; `edge` follows the default
 # branch and is not a stable target.
-CCTV_IMAGE=ghcr.io/aravindmyd/cctv-stack:0.5.1
+CCTV_IMAGE=ghcr.io/aravindmyd/cctv-stack:0.6.0
 
 # RTSP URLs. Replace the placeholder user:password and host.
 CAMERA_FRONT_DOOR_RTSP=rtsp://user:password@192.168.1.10:554/Streaming/Channels/101
@@ -93,8 +93,8 @@ Leave `CCTV_STORAGE_BUCKET` empty for a local-only install. The uploader will ru
 report `DISABLED`; nothing is uploaded and nothing is hidden.
 
 !!! note "Image tags"
-    `0.5.1` is the current release and matches the configuration shown here. `:0.5` follows
-    the newest 0.5.x patch, and `:edge` is rebuilt on every merge to `master` — useful for
+    `0.6.0` is the current release and matches the configuration shown here. `:0.6` follows
+    the newest 0.6.x patch, and `:edge` is rebuilt on every merge to `master` — useful for
     testing a change, not for a site you rely on.
 
 `config/cameras.yml`, where each camera references the variable names from `.env`:
@@ -272,7 +272,7 @@ itself, because that decision is yours.
 pip:
 
 ```bash
-python -m pip install --upgrade "cctv-stack==0.5.1"
+python -m pip install --upgrade "cctv-stack==0.6.0"
 ```
 
 Database migrations run automatically when a service starts, and `update.sh` runs them

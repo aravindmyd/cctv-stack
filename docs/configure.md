@@ -341,6 +341,9 @@ failure there is loud but not fatal: local recording does not depend on the buck
 | `CCTV_CLEANUP_DELETE_CONCURRENCY` | `4` | Parallel cloud deletions |
 | `CCTV_CLEANUP_RECONCILE_INTERVAL_S` | `86400` | How often the bucket and the database are compared; `0` disables it |
 | `CCTV_CLEANUP_RECONCILE_MAX_OBJECTS` | `20000` | Objects one comparison pass will look at |
+| `CCTV_CLEANUP_HOUSEKEEP_INTERVAL_S` | `86400` | Housekeeping cadence (empty directories, stale scratch files, old rows); `0` disables it |
+| `CCTV_CLEANUP_KEEP_DB_BACKUPS` | `10` | Pre-upgrade database copies kept under `db-backups/` |
+| `CCTV_DB_BACKUP_DIR` | `<data>/db-backups` | Where those copies live, if not the default |
 | `CCTV_CLEANUP_CLOUD_DELETE_CRITICAL` | `5` | Consecutive failed deletions before `UNHEALTHY` |
 | `CCTV_CLEANUP_BATCH_SIZE` | `200` | Clips per transaction |
 | `CCTV_CLEANUP_RETIRE_GRACE_DAYS` | `0` | Extra retention for a camera removed from the config |

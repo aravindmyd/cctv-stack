@@ -44,7 +44,7 @@ The runbooks are no longer internal documents: they are published pages under `d
 
 | Milestone | What's missing | Target |
 |---|---|---|
-| M4 (retention) | J1 local retention is built and runs as `cctv-cleanup`; missing: cloud retention (J2), reconciliation (J3) and housekeeping (J4). `force-delete` (M4.13) and the lock (M4.14) are deliberately deferred — [ADR-0021](adr/0021-defer-force-delete-and-advisory-lock.md) | J2–J5 |
+| M4 (retention) | J1 local retention, J2 cloud retention, J3 reconciliation and J4 housekeeping are all built and run as `cctv-cleanup`; J5's full report is the remaining piece. `force-delete` (M4.13) and the lock (M4.14) are deliberately deferred — [ADR-0021](adr/0021-defer-force-delete-and-advisory-lock.md) | J5 |
 | M5 (status page) | Aggregate status page and alerting | After M4 |
 | M6 (installer) | One-command client install, signed bundles, detection | After M5 |
 | M7 (backup) | Backup, restore, upgrade | After M6 |

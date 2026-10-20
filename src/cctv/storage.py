@@ -31,7 +31,7 @@ import time
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, ClassVar, Protocol, runtime_checkable
+from typing import Any, BinaryIO, ClassVar, Protocol, runtime_checkable
 
 __all__ = [
     "CONTENT_TYPE_MP4",
@@ -45,6 +45,7 @@ __all__ = [
     "InvalidRequestError",
     "ObjectConflictError",
     "ObjectInfo",
+    "ObjectReader",
     "PutResult",
     "QuotaExceededError",
     "S3StorageAdapter",
@@ -184,10 +185,23 @@ class PutResult:
 
 @dataclass(frozen=True, slots=True)
 class ObjectInfo:
+    """An object as the provider describes it.
+
+    `last_modified` is the provider's own modification time as a UTC epoch, and it exists for
+    one caller: reconstruction ([`recover`][cctv.recover]). Cloud retention decides expiry from
+    `uploaded_at` (`lld/05` §4.3), so a rebuild that guessed `uploaded_at = now` would restart
+    every object's cloud life and silently extend it by `retention.cloud_days`. The provider
+    knows when the bytes arrived; a rebuild should ask rather than invent.
+
+    `None` where the provider or the call shape does not supply it — a listing that omits it is
+    still a usable listing.
+    """
+
     key: str
     size: int
     etag: str | None = None
     metadata: Mapping[str, str] = field(default_factory=dict)
+    last_modified: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -252,6 +266,30 @@ class StorageAdapter(Protocol):
     def presign_get(self, *, key: str, ttl_s: int) -> str: ...
 
     def healthcheck(self) -> AdapterHealth: ...
+
+
+@runtime_checkable
+class ObjectReader(Protocol):
+    """Read-only object access, for recovery alone (`lld/08` §6.2, §6.3).
+
+    Separate from `StorageAdapter` for the same reason `BucketAdmin` is: a test double for the
+    uploader should not have to implement downloading, and the uploader must not be able to pull
+    an object back over the local file it is about to send. Recovery is the only caller, and it
+    wants the other direction of the arrows.
+    """
+
+    def head_object(self, *, key: str) -> ObjectInfo | None: ...
+
+    def list_objects(self, *, prefix: str, max_keys: int = 1000) -> Iterator[ObjectInfo]: ...
+
+    def download_object(self, *, key: str, destination: BinaryIO) -> int:
+        """Stream the object's bytes into `destination`. Returns the number written.
+
+        Takes a handle rather than a path so that the caller owns the atomically: recovery
+        writes into a scratch file and renames it into place ([`atomic`][cctv.atomic]), and an
+        adapter that chose its own destination would make that impossible.
+        """
+        ...
 
 
 @runtime_checkable
@@ -334,6 +372,33 @@ _QUOTA_STATUSES = frozenset({507})
 _THROTTLE_STATUSES = frozenset({429})
 _TRANSIENT_STATUSES = frozenset({500, 502, 503, 504})
 _INVALID_STATUSES = frozenset({400})
+
+
+def _epoch(value: Any) -> float | None:
+    """A provider timestamp as a UTC epoch, or `None` when it is absent or unreadable.
+
+    Providers disagree about the type: boto3 hands back a `datetime`, a fake client in a test
+    hands back whatever the test wrote, and some S3-compatible servers return a string. All
+    three are accepted, and anything else becomes `None` rather than an exception — a listing
+    without modification times is still a listing, and reconstruction can fall back to the
+    other side of the comparison.
+    """
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            return None
+    timestamp = getattr(value, "timestamp", None)
+    if timestamp is None:
+        return None
+    try:
+        return float(timestamp())
+    except (TypeError, ValueError, OSError):
+        return None
 
 
 def classify_client_error(exc: BaseException, *, key: str | None = None) -> StorageError:
@@ -685,6 +750,7 @@ class S3StorageAdapter:
             size=int(response.get("ContentLength") or 0),
             etag=response.get("ETag"),
             metadata=dict(response.get("Metadata") or {}),
+            last_modified=_epoch(response.get("LastModified")),
         )
 
     def delete_object(self, *, key: str) -> DeleteResult:
@@ -741,12 +807,58 @@ class S3StorageAdapter:
                     key=str(item["Key"]),
                     size=int(item.get("Size") or 0),
                     etag=item.get("ETag"),
+                    last_modified=_epoch(item.get("LastModified")),
                 )
             if not response.get("IsTruncated"):
                 return
             token = response.get("NextContinuationToken")
             if not token:
                 return
+
+    def download_object(self, *, key: str, destination: BinaryIO) -> int:
+        """Stream an object's bytes into an open handle, and return how many arrived.
+
+        Streamed rather than read whole so that a 66 GB recovery is a sequence of small
+        buffers instead of a memory figure. The caller owns durability: it passes a handle
+        inside an atomic writer, so a download that dies halfway leaves no file at the
+        canonical path — which matters because the alternative is a truncated clip that looks
+        like a complete one and uploads back over itself.
+        """
+        try:
+            response = self.client.get_object(Bucket=self._bucket, Key=key)
+            body = response["Body"]
+        except StorageError:
+            raise
+        except Exception as exc:
+            raise classify_client_error(exc, key=key) from exc
+
+        written = 0
+        try:
+            while True:
+                chunk = body.read(1024 * 1024)
+                if not chunk:
+                    break
+                destination.write(chunk)
+                written += len(chunk)
+        except StorageError:
+            raise
+        except Exception as exc:
+            raise TransientStorageError(
+                f"Downloading {key!r} failed after {written} bytes: {exc}",
+                http_status=None,
+            ) from exc
+        finally:
+            close = getattr(body, "close", None)
+            if close is not None:
+                close()
+
+        expected = int(response.get("ContentLength") or -1)
+        if expected >= 0 and written != expected:
+            raise TransientStorageError(
+                f"{key!r} is {expected} bytes according to the provider but {written} arrived. "
+                f"The download was truncated; nothing was written to the canonical path."
+            )
+        return written
 
     def presign_get(self, *, key: str, ttl_s: int) -> str:
         """A time-limited GET URL. Unused in v1; present so a clip browser needs no surgery."""

@@ -421,12 +421,15 @@ explicit rather than `AUTO` on purpose — a silent fallback to CPU produces a m
 accelerated and is not, which is the failure the host profiles exist to prevent. Everything else
 is unchanged: same model, same object filters, same clips.
 
-Measured on a 3-camera site (2560×1440 mains, 4-core VM, CPU detector): Frigate sat at
-**~330 %** with the built-in CPU detector, of which **155 %** was the detector process itself.
-With OpenVINO on the UHD 630 that process leaves the top of `ps` and the whole container settles
-at **~143 %**, dominated by the recording-segment muxer (52 %) and Frigate's main process (40 %)
-— work no accelerator does. Read the number only once the cameras are decoding: a figure taken
-seconds after a restart measures start-up, not steady state.
+Measured on a 3-camera site (2560×1440 mains, 4-core VM): with the built-in CPU detector the
+**detector process alone held 155 %**, and the container ranged **~130–330 %**. With OpenVINO on
+the UHD 630 that process disappears from the top of `ps`, and the container ranges **~11 % on a
+quiet scene to ~145 % while recording segments are being muxed** — what remains is the muxer and
+Frigate's main process, neither of which an accelerator replaces.
+
+Compare like with like: sample only once `/api/stats` shows every camera at its normal fps, and
+describe the *scene* as well as the number. A reading taken seconds after a restart measures
+start-up; a reading on an empty driveway measures idleness.
 
 The decode half is required first — the detector and the decoder share the same device, and
 `compose.gpu.yml` is what makes either possible.

@@ -26,7 +26,8 @@ design.
 | Recovery from the bucket (`./restore.sh clips\|rebuild`) | ✅ built — footage back, `state.db` rebuilt |
 | Housekeeping (J4) | ✅ built — directories, scratch files, old rows |
 | Test notifications (`./install.sh`) | ✅ built — a real message per channel |
-| Signed release bundle | ✅ built — allowlist, checksums, cosign; installer consumption ⬜ |
+| Signed release bundle | ✅ built — allowlist, checksums, cosign, and `install.sh` consumes it |
+| Offline image archives | ⬜ deferred (M6) |
 
 What is deferred, and why, is recorded in
 [`.private/plans/backlog.md`](.private/plans/backlog.md). The client-site delivery plan is

@@ -6,9 +6,11 @@
 # Safe to run repeatedly. Every step reconciles rather than destroys, and nothing here
 # deletes state — an installer that can lose footage is worse than one that refuses to run.
 #
-# The script is deliberately chatty about *why* it stops. The two places it exits early are
-# both "this machine needs a value only you know", and silently continuing with a
-# placeholder RTSP URL would produce a camera that looks configured and never connects.
+# The script is deliberately chatty about *why* it stops. The place it exits early is "this
+# machine needs a value only you know": it will not invent a camera name or a bucket. When
+# there is a terminal it asks the questions itself (lld/07 §6); when there is not, it refuses
+# and says which file to edit, because silently continuing with a placeholder RTSP URL would
+# produce a camera that looks configured and never connects.
 set -euo pipefail
 
 cd "$(dirname "$0")"
@@ -28,53 +30,52 @@ docker compose version >/dev/null 2>&1 || die "the docker compose plugin is not 
 docker info >/dev/null 2>&1 || die "the Docker daemon is not reachable. Start Docker and run this again."
 
 # ---------------------------------------------------------------------------------------
-step "Checking location configuration"
-
-created=0
-if [[ ! -f .env ]]; then
-  cp .env.example .env
-  created=1
-fi
-
-if [[ ! -f config/cameras.yml ]]; then
-  cp config/cameras.example.yml config/cameras.yml
-  created=1
-fi
-
-if [[ "$created" -eq 1 ]]; then
-  cat <<'EOF'
-
-Created the missing configuration files. The two files you edit are:
-
-  .env                  camera RTSP URLs, timezone and optional B2 credentials
-  config/cameras.yml    camera names, clip padding and retention
-
-Next: set the real RTSP URLs in .env, then check that config/cameras.yml references the
-same variable names (for example ${CAMERA_FRONT_DOOR_RTSP}). Run ./install.sh again.
-EOF
-  exit 0
-fi
-
-if grep -q 'user:password@' .env; then
-  die ".env still has the placeholder RTSP URL from .env.example. Set your real camera URLs."
-fi
-
-# ---------------------------------------------------------------------------------------
-step "Checking camera configuration"
-
-if [[ ! -f config/cameras.yml ]]; then
-  die "config/cameras.yml is missing. Copy config/cameras.example.yml and edit it."
-fi
-
-# ---------------------------------------------------------------------------------------
 step "Building the image"
 
 docker compose build
 
 # ---------------------------------------------------------------------------------------
-# Detection runs in the image, not on the host: installing must never need Python here
-# (lld/07 §3). An unsupported machine exits 78 and the `&&` stops the script, so nothing is
-# pulled or started on a host the support matrix does not cover.
+# The interview runs in the image, not on the host: installing must never need Python here
+# (lld/07 §3). It writes `.env` and `cameras.yml`, validating the generated config with the
+# same loader the `config` service uses, so "valid" cannot mean two different things.
+step "Configuring this site"
+
+if [[ ! -f .env ]]; then
+  cp .env.example .env
+fi
+
+force=()
+if [[ ! -f config/cameras.yml ]] || cmp -s config/cameras.example.yml config/cameras.yml; then
+  # Nothing to lose: absent, or still byte-identical to the example.
+  force=(--force)
+fi
+
+run_init() {
+  docker compose run --rm --no-deps init cctv-init \
+    --env /site/.env --cameras /config/cameras.yml "$@"
+}
+
+if [[ -t 0 ]]; then
+  if [[ ${#force[@]} -gt 0 ]]; then
+    run_init --force
+  else
+    run_init
+  fi || die "the questions were not completed. Nothing has been started; run ./install.sh again."
+else
+  # No terminal to ask in. Refuse rather than invent a camera name: the operator edited the
+  # files by hand, or this is automation that must be explicit.
+  run_init --non-interactive \
+    || die "this needs a terminal to ask questions, and --non-interactive found the existing configuration incomplete (see above)."
+fi
+
+if grep -q 'user:password@' .env; then
+  die ".env still has the placeholder RTSP URL. Set the real camera URLs and run this again."
+fi
+
+# ---------------------------------------------------------------------------------------
+# Detection runs in the image, not on the host, for the same reason the interview does. An
+# unsupported machine exits 78 and the `&&` stops the script, so nothing is pulled or started
+# on a host the support matrix does not cover.
 step "Detecting this host"
 
 docker compose run --rm --no-deps config cctv-host

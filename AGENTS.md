@@ -10,19 +10,21 @@ Read this file first, then [`internal/index.md`](internal/index.md) — the inte
 | | |
 |---|---|
 | **Phase** | **BUILDING — v0.3** |
-| **Implemented** | Detect → materialise at the canonical clip path → **upload to Backblaze B2, exactly once** → installable. M3 is certified against a live S3-compatible server. M4's **J1 local retention** runs as the `cleanup` service. M5 is built: the `status` service serves `/status` (JSON and HTML), `/health` and `/metrics` on 8084, generates Gatus's config and pushes heartbeats to it; Gatus and ntfy run in the default stack. M6 has started: `cctv-host` detects the host against the support matrix and computes `FRIGATE_SHM_SIZE`, and `install.sh` runs it before anything starts. M7 has started: `cctv-backup` (with `./backup.sh` and `./restore.sh`) writes an encrypted config bundle, an online database backup and a manifest, and verifies staleness. Lint clean; 836 tests green, 18 skipped (they need a live S3 endpoint or the Docker daemon). |
-| **Not implemented** | M4's cloud retention (J2), reconciliation (J3) and housekeeping (J4); `force-delete` and the single-instance lock, both **deliberately deferred** by [`internal/adr/0021`](internal/adr/0021-defer-force-delete-and-advisory-lock.md); M5's live end-to-end alert run (M5.13, manual) and the `KumaAdapter` fallback; the rest of M6 — the interview, B2 provisioning, signed bundles; M7's cloud clip recovery and
+| **Implemented** | Detect → materialise at the canonical clip path → **upload to Backblaze B2, exactly once** → installable. M3 is certified against a live S3-compatible server. M4's **J1 local retention** runs as the `cleanup` service. M5 is built: the `status` service serves `/status` (JSON and HTML), `/health` and `/metrics` on 8084, generates Gatus's config and pushes heartbeats to it; Gatus and ntfy run in the default stack. M6 has started: `cctv-host` detects the host against the support matrix and computes `FRIGATE_SHM_SIZE`, and `install.sh` runs it before anything starts. M7 has started: `cctv-backup` (with `./backup.sh` and `./restore.sh`) writes an encrypted config bundle, an online database backup and a manifest, and verifies staleness. Lint clean; 907 tests green, 18 skipped (they need a live S3 endpoint or the Docker daemon). |
+| **Not implemented** | M4's cloud retention (J2), reconciliation (J3) and housekeeping (J4); `force-delete` and the single-instance lock, both **deliberately deferred** by [`internal/adr/0021`](internal/adr/0021-defer-force-delete-and-advisory-lock.md); M5's live end-to-end alert run (M5.13, manual) and the `KumaAdapter` fallback; the rest of M6 — B2 provisioning and signed bundles; M7's cloud clip recovery and
 database reconstruction. One thing is deleted today — a clip whose upload is terminal-success and that is past `retention.local_days` — see [`.private/plans/backlog.md`](.private/plans/backlog.md) for exactly what is deferred and why. |
 | **Authority** | Design docs in `internal/` are the source of truth. Code follows docs, not the other way round. `docs/` is the published user site and is not authoritative. |
 
-> **Where things stand.** `src/cctv/` is the shared library plus nine entry points:
+> **Where things stand.** `src/cctv/` is the shared library plus ten entry points:
 > `cctv-clip-worker` (reviews → clips), `cctv-config` (`cameras.yml` → Frigate's config),
 > `cctv-uploader` (clips → B2, with a persisted retry state machine), `cctv-cleanup` (local
 > retention), `cctv-status` (the aggregate answer to "is my CCTV working?"), `cctv-host`
 > (which machine is this, and how much shared memory does Frigate need), `cctv-backup`
 > (configuration, state and manifest, with verification), `cctv-doctor` (read-only diagnosis
-> of a whole installation, published as `./scripts/doctor.sh`) and `cctv-migrate` (the schema
-> step `./update.sh` runs between stopping the old workers and starting the new containers).
+> of a whole installation, published as `./scripts/doctor.sh`), `cctv-migrate` (the schema
+> step `./update.sh` runs between stopping the old workers and starting the new containers)
+> and `cctv-init` (the install interview: location, timezone, cameras and optional B2, which
+> writes `cameras.yml` and `.env` after validating the result through the real loader).
 > `dev-synthetic/` is the camera-free harness and is **kept** — it is how the pipeline gets
 > exercised without a camera, and how it will run in CI. `spike/` is a throwaway measurement
 > harness and still goes once M1's exit criteria are met.
@@ -164,7 +166,7 @@ specified in the linked design doc.
 
 | Command | Purpose | Status | Spec |
 |---|---|---|---|
-| `./install.sh` | Create the site config, validate it, start the stack, wait for Frigate | **built** (development version; M6 adds detection, the interview and full verification) | [`lld/07`](internal/architecture/lld/07-installer-and-host-profiles.md) |
+| `./install.sh` | Create the site config, validate it, start the stack, wait for Frigate | **built** (answers the questions in the image: §7 provisioning and notifications are not built) | [`lld/07`](internal/architecture/lld/07-installer-and-host-profiles.md) |
 | `./update.sh` | Pull new version, migrate, recreate containers, verify | **built** (`--to`, `--rollback`, `--dry-run`) | [`lld/09`](internal/architecture/lld/09-upgrade-and-versioning.md) |
 | `./uninstall.sh` | Stop and remove containers, keep data | **built** (including `--images`, `--purge`, `--dry-run`) | [`lld/07`](internal/architecture/lld/07-installer-and-host-profiles.md) |
 | `./backup.sh` | Back up config + database + upload state | planned | [`lld/08`](internal/architecture/lld/08-backup-and-restore.md) |

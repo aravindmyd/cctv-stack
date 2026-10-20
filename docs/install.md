@@ -14,6 +14,34 @@ only want the additional services.
 | Cloud backup | Optional. A Backblaze B2 bucket and an application key |
 | Network | Outbound access for B2. No inbound access is required |
 
+## From the repository, in one command
+
+```bash
+git clone https://github.com/aravindmyd/cctv-stack.git
+cd cctv-stack
+./install.sh
+```
+
+It asks four sets of questions and does the rest:
+
+```text
+Location        parents-home          appears in every clip path and cloud object key
+Timezone        Asia/Kolkata         decides which directory a clip is filed under
+Cameras         name, main RTSP, optional sub-stream, repeat
+Cloud backup    Backblaze B2 bucket + key, or skip
+```
+
+Then it validates what it wrote with the same loader the stack uses, detects the host,
+starts everything, and waits for Frigate. Nothing is started until the configuration is
+valid, and nothing is uploaded anywhere unless you asked for cloud backup.
+
+Every question has a default, so the common path is pressing Enter. Passwords and keys are
+never echoed and never printed back in the summary — the camera URL is shown with its
+credentials removed.
+
+`./install.sh` is safe to run again: it reconciles, and it will not replace a
+`config/cameras.yml` that you have edited unless you ask it to.
+
 ## Docker Compose
 
 The released image is public, so nothing in this guide needs the source repository.
@@ -25,14 +53,28 @@ mkdir -p config
 
 curl -fsSLO https://raw.githubusercontent.com/aravindmyd/cctv-stack/master/compose.yml
 curl -fsSL https://raw.githubusercontent.com/aravindmyd/cctv-stack/master/.env.example -o .env
-curl -fsSL https://raw.githubusercontent.com/aravindmyd/cctv-stack/master/config/cameras.example.yml -o config/cameras.yml
 
 chmod 600 .env
 ```
 
-### 1. Edit `.env`
+### 1. Answer the questions
 
-The file is commented; the values you must set are:
+The same interview the installer runs, against the files in this directory:
+
+```bash
+docker compose run --rm --no-deps init cctv-init
+```
+
+It writes `.env` (mode `0600`) and `config/cameras.yml`, and validates the generated
+configuration before it replaces anything. `--force` replaces an existing `cameras.yml`;
+without it, an existing file is left alone and the command says so.
+
+No terminal, or automation? `--non-interactive` never guesses — it validates what is
+already on disk and exits `78` naming the values that are still placeholders.
+
+#### If you would rather write the files yourself
+
+`.env`:
 
 ```ini
 # The published image. Pin the release you are installing; `edge` follows the default
@@ -54,10 +96,8 @@ report `DISABLED`; nothing is uploaded and nothing is hidden.
     `0.5.1` is the current release and matches the configuration shown here. `:0.5` follows
     the newest 0.5.x patch, and `:edge` is rebuilt on every merge to `master` — useful for
     testing a change, not for a site you rely on.
-### 2. Edit `config/cameras.yml`
 
-Set the site name and timezone, and make sure each camera references the variable names
-you used in `.env`.
+`config/cameras.yml`, where each camera references the variable names from `.env`:
 
 ```yaml
 site:
@@ -75,7 +115,7 @@ cameras:
 Every key is documented in [Configure](configure.md), and the example file carries a
 comment on each one.
 
-### 3. Validate before starting
+### 2. Validate before starting
 
 Validation runs in the same image that generates Frigate's config, so "valid" means the
 same thing here and at start-up.
@@ -100,7 +140,7 @@ docker compose run --rm --no-deps config cctv-host
 It exits 78 on a host the support matrix does not cover, rather than starting a stack that
 will not work.
 
-### 4. Start
+### 3. Start
 
 ```bash
 docker compose up -d
@@ -118,7 +158,7 @@ What happens, in order:
 Frigate's UI is at <https://127.0.0.1:8971>. It is HTTPS with a self-signed certificate,
 so the browser warns once; plain `http://` on that port returns `400`.
 
-### 5. Check that it is running
+### 4. Check that it is running
 
 ```bash
 docker compose ps

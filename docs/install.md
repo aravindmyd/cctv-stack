@@ -58,7 +58,7 @@ cd /opt/cctv && sudo ./install.sh
 
 ## From the repository
 
-For development, or if you want the source: 
+For development, or if you want the source:
 
 ```bash
 git clone https://github.com/aravindmyd/cctv-stack.git

@@ -111,10 +111,60 @@ def test_incomplete_configuration_stops_the_install(site: Path) -> None:
 def test_a_placeholder_url_still_stops_the_install(site: Path) -> None:
     """If the interview declines to rewrite the URL, the placeholder check must catch it."""
     (site / "bin" / "docker").write_text(
-        '#!/usr/bin/env bash\nprintf \'%s\\n\' "$*" >> "$DOCKER_LOG"\nexit 0\n', encoding="utf-8"
+        '#!/usr/bin/env bash\nprintf \'%s\\n\' "$*" >> "$DOCKER_LOG"\nexit 0\n',
+        encoding="utf-8",
     )
     (site / "bin" / "docker").chmod(0o755)
 
     result = _run(site)
     assert result.returncode == 1
     assert "placeholder RTSP URL" in result.stderr
+
+
+def test_cloud_backup_is_skipped_without_a_bucket(site: Path) -> None:
+    """Local-only is a supported state, so no bucket means no provisioning attempt."""
+    result = _run(site)
+    assert result.returncode == 0
+    assert "cloud backup stays DISABLED" in result.stdout
+    assert not any("cctv-provision" in call for call in _calls(site))
+
+
+def test_a_configured_bucket_is_provisioned_before_starting(site: Path) -> None:
+    original = (site / "bin" / "docker").read_text(encoding="utf-8")
+    (site / "bin" / "docker").write_text(
+        original.replace(
+            "exit 0\n",
+            'if [[ "$*" == *"cctv-init"* ]]; then\n'
+            '  printf "CCTV_STORAGE_BUCKET=cctv-parents-home\\n" >> .env\n'
+            "fi\n"
+            "exit 0\n",
+        ),
+        encoding="utf-8",
+    )
+
+    result = _run(site)
+    assert result.returncode == 0, result.stdout + result.stderr
+    calls = _calls(site)
+    provision_index = next(i for i, c in enumerate(calls) if "cctv-provision" in c)
+    up_index = next(i for i, c in enumerate(calls) if c.startswith("compose up"))
+    assert provision_index < up_index
+
+
+def test_a_failed_provisioning_is_loud_but_not_fatal(site: Path) -> None:
+    original = (site / "bin" / "docker").read_text(encoding="utf-8")
+    (site / "bin" / "docker").write_text(
+        original.replace(
+            "exit 0\n",
+            'if [[ "$*" == *"cctv-init"* ]]; then\n'
+            '  printf "CCTV_STORAGE_BUCKET=cctv-parents-home\\n" >> .env\n'
+            "fi\n"
+            'if [[ "$*" == *"cctv-provision"* ]]; then exit 1; fi\n'
+            "exit 0\n",
+        ),
+        encoding="utf-8",
+    )
+
+    result = _run(site)
+    assert result.returncode == 0, result.stderr
+    assert "bucket is not ready" in result.stdout
+    assert "Frigate is up." in result.stdout

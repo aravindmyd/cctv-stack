@@ -67,6 +67,7 @@ src/cctv/                 shared library and five services
   backup.py               cctv-backup: encrypted config bundle, state backup, verification
   doctor.py               cctv-doctor: read-only diagnosis of the whole installation
   interview.py            cctv-init: the install interview (cameras.yml + .env)
+  provision.py            cctv-provision: bucket, versioning, lifecycle rule, probe
   config_cli.py           cctv-config
   materialise.py          review → canonical clip
   db.py                   SQLite state machine and migrations

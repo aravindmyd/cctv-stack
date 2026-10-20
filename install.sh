@@ -107,6 +107,28 @@ docker compose run --rm --no-deps config \
   cctv-config validate --cameras /config/cameras.yml
 
 # ---------------------------------------------------------------------------------------
+# Cloud backup is opt-in. With no bucket in .env this has nothing to do and says so; with one
+# it creates the bucket, sets versioning, merges the expiry rule and proves the whole path
+# with a probe object (lld/07 §7).
+#
+# A failure here is loud but not fatal: local recording, clips and retention work without the
+# bucket, and uploads retry. A wrong key only means clips never leave the machine, which is
+# exactly what the warning says.
+step "Provisioning cloud backup"
+
+if grep -q '^CCTV_STORAGE_BUCKET=..*' .env; then
+  if ! docker compose --profile ops run --rm --no-deps provision \
+    cctv-provision --cameras /config/cameras.yml; then
+    say
+    say "⚠  The bucket is not ready, so clips will NOT be uploaded yet."
+    say "   Local recording, clips and retention are unaffected."
+    say "   Fix the values in .env, then re-run: ./scripts/provision.sh"
+  fi
+else
+  say "No bucket configured, so cloud backup stays DISABLED. That is a supported state."
+fi
+
+# ---------------------------------------------------------------------------------------
 step "Starting"
 
 docker compose up -d

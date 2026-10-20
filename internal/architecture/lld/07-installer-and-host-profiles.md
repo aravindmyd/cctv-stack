@@ -10,8 +10,13 @@
 > prompts for location, timezone, cameras and optional B2 credentials, validates the generated
 > `cameras.yml` through the real loader before replacing it, writes `.env` at `0600`, redacts
 > credentials from everything it prints, and supports `--non-interactive`, `--force`, `--print`
-> and a live B2 credential test (`--no-test` to skip). §8's start order is built; §8.2's
-> per-component verification is `cctv-doctor`. **Not built yet:** cloud provisioning (§7), test
+> and a live B2 credential test (`--no-test` to skip). **§7 (cloud provisioning)** is built as
+> `cctv-provision` (`./scripts/provision.sh`): create the bucket, enable versioning, merge our
+> expiry rule by rule *ID* so nobody else's rule is touched, read it back, then write, verify and
+> delete a 1 KB probe object. `install.sh` runs it after the interview and before starting; a
+> failure is loud but not fatal, because local recording does not need the bucket.
+> `uninstall.sh --remove-lifecycle` removes our rule and keeps the others. §8's start order is
+> built; §8.2's per-component verification is `cctv-doctor`. **Not built yet:** test
 > notifications (§6.2), the Telegram channel, and the signed-bundle paths (M6.19–M6.24). The
 > profile table is data in `PROFILES`, so adding a row needs no code change.
 

@@ -83,6 +83,7 @@ A moving `:edge` tag follows `master`. If the registry package is private, run
 | `cctv-status` | Serve the aggregate status page (`:8084/status`), health and metrics |
 | `cctv-host` | Detect this machine's host profile and Frigate's `shm_size` |
 | `cctv-init` | Answer the install questions and write `cameras.yml` and `.env` |
+| `cctv-provision` | Create the bucket, set versioning, write the expiry rule, prove it |
 | `cctv-doctor` | Diagnose a whole installation, read-only (`./scripts/doctor.sh`) |
 | `cctv-backup` | Encrypted config bundle, online database backup, verification |
 | `cctv-migrate` | Apply pending migrations between stopping and starting services |

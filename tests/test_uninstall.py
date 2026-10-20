@@ -157,7 +157,18 @@ def test_help_lists_the_destructive_flags(site: Path) -> None:
     assert "--remove-lifecycle" in result.stdout
 
 
-def test_lifecycle_flag_is_honest_about_doing_nothing(site: Path) -> None:
+def test_lifecycle_flag_removes_only_when_a_bucket_exists(site: Path) -> None:
     result = _run(site, "--remove-lifecycle", "--dry-run")
     assert result.returncode == 0
-    assert "creates no lifecycle rule" in result.stdout
+    assert "no rule of ours to remove" in result.stdout
+
+
+def test_lifecycle_flag_calls_the_provisioner(site: Path) -> None:
+    (site / ".env").write_text(
+        "CCTV_SITE=parents-home\nCCTV_DATA_DIR=./data\nCCTV_STORAGE_BUCKET=cctv-parents-home\n",
+        encoding="utf-8",
+    )
+    result = _run(site, "--remove-lifecycle", "--dry-run")
+    assert result.returncode == 0
+    assert "--remove-lifecycle" in result.stdout
+    assert "cctv-provision" in result.stdout

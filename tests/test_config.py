@@ -427,9 +427,24 @@ def test_short_headroom_can_be_accepted_explicitly(tmp_path: Path) -> None:
     assert generated["cameras"]["front-door"]["record"] == {"enabled": False}
 
 
-def test_default_motion_mode_satisfies_the_headroom_guard(tmp_path: Path) -> None:
-    generated = config.to_frigate(load(tmp_path))
-    assert generated["cameras"]["front-door"]["record"]["motion"]["days"] == 3
+def test_default_recording_is_two_days_of_continuous_footage(tmp_path: Path) -> None:
+    """[ADR-0022] Two days of everything, so a quiet incident still has video."""
+    cfg = load(tmp_path)
+    record = config.to_frigate(cfg)["cameras"]["front-door"]["record"]
+
+    assert cfg.cameras["front-door"].record.mode == "continuous"
+    assert record["continuous"]["days"] == 2
+    # Motion footage outlives the 24/7 churn, which is the point of keeping both.
+    assert record["motion"]["days"] == 7
+    assert record["alerts"]["retain"]["days"] == 30
+    assert record["detections"]["retain"]["days"] == 14
+
+
+def test_motion_mode_is_still_available_and_keeps_three_days(tmp_path: Path) -> None:
+    cfg = load(tmp_path, with_camera("record:\n  mode: motion"))
+    record = config.to_frigate(cfg)["cameras"]["front-door"]["record"]
+    assert record["continuous"]["days"] == 0
+    assert record["motion"]["days"] == 3
 
 
 @pytest.mark.parametrize("mode", ["motion", "continuous", "alerts", "detections"])

@@ -72,12 +72,15 @@ defaults:
     objects: [person]
 
   record:
-    # How Frigate retains its own footage, which sets the recovery budget above.
+    # How Frigate retains its own footage, which sets the recovery budget above. Frigate's
+    # recordings stay on this host: they are never uploaded and never backed up, so this is
+    # disk cost only (ADR-0022).
     # continuous | motion | alerts | detections | off
     #
-    # `motion` is the usual choice: it records around activity rather than constantly, so the
-    # recovery window is measured in days rather than hours of disk.
-    mode: motion
+    # `continuous` is the default: two days of everything, so an incident with no motion —
+    # a parcel left at a gate, a quiet corner at night — still has footage. Motion footage is
+    # kept seven days, alerts thirty and detections fourteen, on top of that.
+    mode: continuous
 
 cameras:
   front-door:

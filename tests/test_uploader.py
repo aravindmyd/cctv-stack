@@ -417,6 +417,20 @@ def test_the_object_key_is_the_location_plus_the_local_path(env: Any) -> None:
     assert key == f"{LOCATION}/{row_of(env, clip_id)['path']}"
 
 
+def test_object_keys_are_confined_to_the_clip_namespace(env: Any) -> None:
+    """Frigate's own recordings can never reach the bucket ([ADR-0022]).
+
+    Two days of continuous footage are kept locally. They are not rows in `clips`, and the
+    uploader only ever uploads a row's `path` — every one of which sits under `clips/`.
+    There is no code path that enumerates `data/media/`, so continuous footage cannot be
+    uploaded, listed, or billed.
+    """
+    add_clip(env)
+    claim(env)
+    assert REL.startswith("clips/")
+    assert env.adapter.puts[0].startswith(f"{LOCATION}/clips/")
+
+
 def test_metadata_reaches_the_adapter(env: Any) -> None:
     add_clip(env)
     claim(env)

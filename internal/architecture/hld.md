@@ -255,7 +255,7 @@ Detected host profile
 
 Recommended profile: pi-cpu
   → 3 cameras maximum at 640×360 detection resolution
-  → continuous recording disabled by default
+  → continuous recording: 2 days locally (≈43 GB per camera at 2 Mbps)
 
 Proceed with this profile? [Y/n/override]
 ```
@@ -412,10 +412,11 @@ Two mechanisms rather than one is intentional: application cleanup is exact and
 fast, provider lifecycle is independent of our code being correct.
 
 > ⚠️ **The recording archive is not covered by our retention.** Frigate manages
-> its own recordings with its own `record:` retention config. We generate a
-> deliberately conservative default (short motion retention, continuous disabled)
-> because 24/7 retention is the single easiest way to fill a disk. Operators who
-> want continuous recording must opt in and will see a capacity warning.
+> its own recordings with its own `record:` retention config. The generated default keeps
+> **two days of continuous footage** plus seven days of motion, thirty of alerts and
+> fourteen of detections ([ADR-0022](../../adr/0022-continuous-recording-for-two-days.md)) —
+> bounded, local, and never uploaded. Frigate expires it; we never delete inside
+> `data/media/`.
 
 ### 6.6 Health aggregation
 
@@ -761,12 +762,13 @@ At 2 Mbps encoding, 100 events/day, 30 s average clip (≈7.5 MB each):
 | Clips per day | ≈ 750 MB |
 | Local, 90 days | ≈ 66 GB |
 | Cloud, 60 days | ≈ 44 GB |
-| **Continuous recording** per camera | **≈ 21 GB / day, ≈ 1.9 TB / 90 days** |
+| **Continuous recording** per camera, the two days we keep | **≈ 21 GB / day, ≈ 43 GB total** |
 
-That last row is the point: continuous retention is two orders of magnitude more
-expensive than clip retention. It is why the generated default is continuous
-recording **disabled**, and why the installer prints a capacity projection before
-the operator commits.
+That last row is the point: continuous footage is an order of magnitude larger than the
+clips it produces. It is bounded to two days and it never leaves the host
+([ADR-0022](../../adr/0022-continuous-recording-for-two-days.md)), so it is a disk cost with
+a known ceiling rather than an unbounded archive — and it is the difference between having
+footage of a quiet incident and having none.
 
 ### 14.3 Installer capacity check
 

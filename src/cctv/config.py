@@ -93,9 +93,15 @@ class DetectConfig:
 
 @dataclass(frozen=True, slots=True)
 class RecordConfig:
-    """How Frigate retains *its* footage. Not our clip retention — see `RetentionConfig`."""
+    """How Frigate retains *its* footage. Not our clip retention — see `RetentionConfig`.
 
-    mode: str = "motion"
+    The default is continuous for two days (ADR-0022): motion-only footage leaves an
+    incident with no motion — something left at a gate, a quiet corner at night — with
+    nothing recorded at all. Two days costs disk and nothing else: Frigate's recordings are
+    local-only and are never uploaded to the bucket.
+    """
+
+    mode: str = "continuous"
 
 
 @dataclass(frozen=True, slots=True)
@@ -459,7 +465,9 @@ def _build_camera(
     if not isinstance(record_raw, Mapping):
         raise ConfigError(f"{where}.record must be a mapping.")
     _check_keys(record_raw, frozenset({"mode"}), where=f"{where}.record")
-    mode = record_raw.get("mode", "motion")
+    # The default lives in one place: `RecordConfig.mode`, so the dataclass and the parsed
+    # model cannot disagree about what an omitted `record:` block means (ADR-0022).
+    mode = record_raw.get("mode", RecordConfig().mode)
     if mode not in RECORD_MODES:
         raise ConfigError(f"{where}.record.mode: {mode!r} is not one of {sorted(RECORD_MODES)}.")
 
@@ -731,10 +739,15 @@ def to_frigate(config: CamerasConfig, *, allow_short_headroom: bool = False) -> 
 
 
 #: `record.mode` → Frigate retention blocks. From `cameras-config-schema.md` §4.1.
+#:
+#: Continuous is the default at **two** days. `motion` stays at seven even in that mode, so
+#: footage attached to activity outlives the 24/7 churn by five days; alerts and detections
+#: keep Frigate's own 30/14. `min_headroom_days` (default 2) is exactly satisfied, which is
+#: deliberate — raising it without raising `continuous.days` is refused at generation time.
 _RECORD_BLOCKS: dict[str, dict[str, Any]] = {
     "continuous": {
         "enabled": True,
-        "continuous": {"days": 7},
+        "continuous": {"days": 2},
         "motion": {"days": 7},
         "alerts": {"retain": {"days": 30}},
         "detections": {"retain": {"days": 14}},

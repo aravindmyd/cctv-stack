@@ -164,7 +164,7 @@ operator has no reason to suspect.
   Recommended profile:  pi-cpu
     · detection limited to 2 cameras at 640×360
     · detection framerate reduced to 3 fps
-    · continuous recording disabled
+    · continuous recording: 2 days locally (≈43 GB per camera at 2 Mbps)
 
   Alternatives:
     1  pi-cpu                (recommended for this machine)

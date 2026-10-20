@@ -427,7 +427,7 @@ def test_frigate_side_retention_survives_the_reassembly(tmp_path: Path) -> None:
 
     entry = build_frigate_config(config)["cameras"]["front-door"]
 
-    assert entry["record"]["continuous"]["days"] == 7
+    assert entry["record"]["continuous"]["days"] == 2
 
 
 def test_a_record_mode_that_leaves_no_recovery_budget_is_refused(

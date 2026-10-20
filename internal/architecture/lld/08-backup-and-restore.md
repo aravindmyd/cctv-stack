@@ -123,7 +123,7 @@ Documented with an explicit size warning: this is 66 GB at the reference capacit
 
 | Not backed up | Consequence | Mitigation |
 |---|---|---|
-| `data/media/recordings/` | Recent continuous footage is lost in a total failure | Accepted and documented. This is why the default recording retention is short: there is little to lose |
+| `data/media/recordings/` | Recent continuous footage is lost in a total failure | Accepted and documented. The default keeps two days of it ([ADR-0022](../../adr/0022-continuous-recording-for-two-days.md)), and it is never uploaded: there is little to lose, and nothing is unbounded |
 | Frigate's snapshots and review thumbnails | Frigate's UI history is lost; clips remain | The canonical clips and their sidecars carry the metadata that matters |
 | Docker images | Re-pull | Digest-pinned, so the same version comes back |
 | `data/uptime-kuma/` or the monitoring tool's state | Monitoring history is lost; monitors are regenerated | Acceptable; the tool is stateless from our perspective |

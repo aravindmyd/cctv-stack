@@ -239,7 +239,10 @@ class Interview:
         self._out("\nThe timezone decides which directory a clip is filed under. It is never")
         self._out("guessed from the container, so confirm it.")
         return self._prompt(
-            "Timezone", default=default, validate=_valid_zone, hint="Example: Australia/Sydney."
+            "Timezone",
+            default=default,
+            validate=_valid_zone,
+            hint="Example: Australia/Sydney.",
         )
 
     def _ask_cameras(self) -> tuple[CameraAnswer, ...]:
@@ -433,7 +436,7 @@ def render_cameras_yml(answers: Answers) -> str:
         "",
         "defaults:",
         "  record:",
-        "    mode: motion",
+        "    mode: continuous",
         "",
         "cameras:",
     ]
@@ -576,7 +579,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument("--env", type=Path, default=Path("/site/.env"), help="the .env to write")
     parser.add_argument(
-        "--cameras", type=Path, default=Path("/config/cameras.yml"), help="the cameras.yml to write"
+        "--cameras",
+        type=Path,
+        default=Path("/config/cameras.yml"),
+        help="the cameras.yml to write",
     )
     parser.add_argument("--force", action="store_true", help="overwrite an existing cameras.yml")
     parser.add_argument(
@@ -615,7 +621,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         verb, _, detail = outcome.partition(" ")
         if verb == "FAIL":
             print(f"  ✗ {detail}", file=sys.stderr)
-            print("    The files were written, but the credentials were rejected.", file=sys.stderr)
+            print(
+                "    The files were written, but the credentials were rejected.",
+                file=sys.stderr,
+            )
             return 1
         if verb == "WARN":
             print(f"  ⚠️  {detail}")

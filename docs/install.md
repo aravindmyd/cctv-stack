@@ -79,7 +79,7 @@ already on disk and exits `78` naming the values that are still placeholders.
 ```ini
 # The published image. Pin the release you are installing; `edge` follows the default
 # branch and is not a stable target.
-CCTV_IMAGE=ghcr.io/aravindmyd/cctv-stack:0.6.0
+CCTV_IMAGE=ghcr.io/aravindmyd/cctv-stack:0.7.0
 
 # RTSP URLs. Replace the placeholder user:password and host.
 CAMERA_FRONT_DOOR_RTSP=rtsp://user:password@192.168.1.10:554/Streaming/Channels/101
@@ -93,8 +93,8 @@ Leave `CCTV_STORAGE_BUCKET` empty for a local-only install. The uploader will ru
 report `DISABLED`; nothing is uploaded and nothing is hidden.
 
 !!! note "Image tags"
-    `0.6.0` is the current release and matches the configuration shown here. `:0.6` follows
-    the newest 0.6.x patch, and `:edge` is rebuilt on every merge to `master` — useful for
+    `0.7.0` is the current release and matches the configuration shown here. `:0.7` follows
+    the newest 0.7.x patch, and `:edge` is rebuilt on every merge to `master` — useful for
     testing a change, not for a site you rely on.
 
 `config/cameras.yml`, where each camera references the variable names from `.env`:
@@ -234,7 +234,7 @@ published to your LAN: Frigate treats requests on that port as anonymous admin.
 ## Upgrading
 
 ```bash
-./update.sh --to ghcr.io/jothikaraja/cctv-stack:0.6.0
+./update.sh --to ghcr.io/aravindmyd/cctv-stack:0.7.0
 ./update.sh --rollback     # the previous image, and the pre-upgrade database
 ./update.sh --dry-run      # print the plan, change nothing
 ```
@@ -263,6 +263,16 @@ itself, because that decision is yours.
     The generated `config/host.yml` is written by the installer; existing sites keep working
     without it.
 
+!!! warning "Upgrading from 0.6.0 — your disk will start filling"
+    `0.7.0` changes the default recording mode to **two days of continuous footage** (was: three
+    days of motion only). Existing sites gain it without editing anything, because their
+    config omits `record:`. That is roughly **21 GB per camera per day at 2 Mbps**, so check
+    free space before upgrading: a camera at 4 Mbps needs about 86 GB for the two days.
+
+    The footage stays on this host — it is never uploaded, never backed up, and never billed.
+    To keep the old behaviour, set `record: {mode: motion}` under `defaults` in
+    `config/cameras.yml`. See [Configure](configure.md#record) for the trade-off.
+
 !!! note "Upgrading from 0.5.0"
     `0.5.1` moves the generated Gatus config from `config/gatus/` to `data/gatus/` and gives
     Gatus a named volume for its history, which is what stops a fresh install's Gatus from
@@ -272,7 +282,7 @@ itself, because that decision is yours.
 pip:
 
 ```bash
-python -m pip install --upgrade "cctv-stack==0.6.0"
+python -m pip install --upgrade "cctv-stack==0.7.0"
 ```
 
 Database migrations run automatically when a service starts, and `update.sh` runs them

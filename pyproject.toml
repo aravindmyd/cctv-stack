@@ -83,6 +83,7 @@ cctv-init = "cctv.interview:main"
 cctv-provision = "cctv.provision:main"
 cctv-recover = "cctv.recover:main"
 cctv-notify = "cctv.notify:main"
+cctv-release = "cctv.release:main"
 
 [project.urls]
 Homepage = "https://github.com/aravindmyd/cctv-stack"

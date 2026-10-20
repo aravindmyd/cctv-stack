@@ -89,6 +89,7 @@ A moving `:edge` tag follows `master`. If the registry package is private, run
 | `cctv-backup` | Encrypted config bundle, online database backup, verification |
 | `cctv-recover` | Download every clip from B2 (`clips`); reconstruct the clips table (`rebuild`) |
 | `cctv-notify` | Send a real test message to every configured alert channel |
+| `cctv-release` | Assemble the signed release bundle (`bundle`, `inspect`, `override`) |
 | `cctv-migrate` | Apply pending migrations between stopping and starting services |
 
 The four services are long-running and configuration-driven; they take no command-line

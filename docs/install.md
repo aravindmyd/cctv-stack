@@ -14,13 +14,61 @@ only want the additional services.
 | Cloud backup | Optional. A Backblaze B2 bucket and an application key |
 | Network | Outbound access for B2. No inbound access is required |
 
-## From the repository, in one command
+## From a release bundle
+
+Each tagged release publishes one tarball, a checksum file, and a signature over that
+checksum file. **Verify before you extract**, because everything after this step runs code:
+the bundle's `install.sh` configures a machine and starts containers.
+
+```bash
+VERSION=0.7.0
+
+curl -fsSLO "https://github.com/aravindmyd/cctv-stack/releases/download/v$VERSION/cctv-stack-$VERSION.tar.gz"
+curl -fsSLO "https://github.com/aravindmyd/cctv-stack/releases/download/v$VERSION/SHA256SUMS"
+curl -fsSLO "https://github.com/aravindmyd/cctv-stack/releases/download/v$VERSION/SHA256SUMS.sig"
+curl -fsSLO "https://github.com/aravindmyd/cctv-stack/releases/download/v$VERSION/SHA256SUMS.pem"
+
+sha256sum -c SHA256SUMS --ignore-missing
+
+cosign verify-blob \
+  --certificate SHA256SUMS.pem \
+  --signature SHA256SUMS.sig \
+  --certificate-identity-regexp \
+    'https://github.com/aravindmyd/cctv-stack/.github/workflows/publish.yml@refs/tags/v.*' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  SHA256SUMS
+```
+
+Two checks, and they answer different questions. `sha256sum -c` proves the file you
+downloaded is the file whose checksum you were given. `cosign verify-blob` proves *who*
+gave it to you: the signature is keyless, so there is no long-lived key to leak, and the
+certificate records that the signer was this repository's publish workflow running on a
+`v*` tag. Without the second check, a tampered download and a tampered checksum agree with
+each other perfectly.
+
+The bundle contains no source, no tests and no `.env`. It has `compose.yml` without any
+`build:` blocks, a `versions.yml` recording the image digests this release was signed for,
+and `SHA256SUMS`. Its `install.sh` pulls those exact digests.
+
+```bash
+sudo mkdir -p /opt/cctv
+sudo tar -xzf "cctv-stack-$VERSION.tar.gz" -C /opt/cctv --strip-components=1
+cd /opt/cctv && sudo ./install.sh
+```
+
+## From the repository
+
+For development, or if you want the source: 
 
 ```bash
 git clone https://github.com/aravindmyd/cctv-stack.git
 cd cctv-stack
 ./install.sh
 ```
+
+This path builds the image locally, so it needs a compiler-free but network-connected
+machine and takes longer. What it produces is the same stack; the difference is where the
+image came from.
 
 It asks four sets of questions and does the rest:
 

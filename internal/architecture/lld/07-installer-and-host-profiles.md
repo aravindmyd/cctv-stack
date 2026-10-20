@@ -373,6 +373,12 @@ at the end with the time cost stated.
 
 ## 10. `doctor.sh`
 
+> **Implementation status (2026-10-20).** Built as `cctv-doctor` (`./scripts/doctor.sh`), run
+> through the `doctor` ops-profile service: every table row except **containers** and the
+> installed-image comparison in **versions** is checked, and those two report `skip` with the
+> reason rather than passing. JSON is written to `data/logs/doctor-<ts>.json`, redacted through
+> `logging.redact_url`.
+
 The single command to run when something is wrong. Runnable at any time, read-only.
 
 | Section | Checks |

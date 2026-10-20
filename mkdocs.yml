@@ -16,6 +16,7 @@ nav:
     - Frigate UI login: frigate-ui.md
   - Running it:
     - Health: health.md
+    - Diagnose problems: doctor.md
     - Recover failed uploads: recover-uploads.md
     - Rotate credentials: rotate-credentials.md
     - Disaster recovery: disaster-recovery.md

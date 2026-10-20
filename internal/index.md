@@ -31,12 +31,14 @@ The design set is complete: 4 entry points, 1 HLD, 1 invariant list, 6 contracts
 documents.
 
 **What is built** (`src/cctv/`, entry points `cctv-clip-worker`, `cctv-config`,
-`cctv-uploader`, `cctv-cleanup`, `cctv-status`, `cctv-host`, `cctv-backup`): a review becomes a
+`cctv-uploader`, `cctv-cleanup`, `cctv-status`, `cctv-host`, `cctv-backup`, `cctv-doctor`): a
+review becomes a
 file at the canonical path, the uploader pushes it to Backblaze B2 exactly once through a
 storage adapter, local retention deletes a clip only after its upload is terminal-success, the
 status collector aggregates all of it into `/status` (JSON and HTML) on 8084 and drives
-Gatus/ntfy, the installer detects the host profile and Frigate's shared-memory size, and
-`cctv-backup` writes an encrypted config bundle and a verified database backup. Each service
+Gatus/ntfy, the installer detects the host profile and Frigate's shared-memory size,
+`cctv-backup` writes an encrypted config bundle and a verified database backup, and
+`cctv-doctor` diagnoses an installation read-only. Each service
 exposes `/health` and `/metrics` per
 [`service-contracts.md`](architecture/contracts/service-contracts.md).
 

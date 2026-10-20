@@ -18,8 +18,9 @@ Read this file first, then [`internal/index.md`](internal/index.md) — the inte
 > `cctv-clip-worker` (reviews → clips), `cctv-config` (`cameras.yml` → Frigate's config),
 > `cctv-uploader` (clips → B2, with a persisted retry state machine), `cctv-cleanup` (local
 > retention), `cctv-status` (the aggregate answer to "is my CCTV working?"), `cctv-host`
-> (which machine is this, and how much shared memory does Frigate need) and `cctv-backup`
-> (configuration, state and manifest, with verification).
+> (which machine is this, and how much shared memory does Frigate need), `cctv-backup`
+> (configuration, state and manifest, with verification) and `cctv-doctor` (read-only
+> diagnosis of a whole installation, published as `./scripts/doctor.sh`).
 > `dev-synthetic/` is the camera-free harness and is **kept** — it is how the pipeline gets
 > exercised without a camera, and how it will run in CI. `spike/` is a throwaway measurement
 > harness and still goes once M1's exit criteria are met.
@@ -71,6 +72,7 @@ cctv-stack/
 │   ├── configure.md           # cameras.yml, .env, adding cameras
 │   ├── frigate-ui.md          # Frigate web login
 │   ├── health.md              # health reports and admin endpoints
+│   ├── doctor.md              # diagnosing a broken installation
 │   ├── recover-uploads.md     # a stuck upload queue
 │   ├── rotate-credentials.md  # B2 keys and camera passwords
 │   ├── disaster-recovery.md   # what to back up, how to rebuild
@@ -167,7 +169,7 @@ specified in the linked design doc.
 | `docker compose up -d` | Start the stack directly | planned | [`hld.md`](internal/architecture/hld.md) |
 | `tests/integration/run.sh` | Run the live integration suite against RustFS (starts and stops it) | **built** | [`tests/integration/README.md`](tests/integration/README.md) |
 | `tests/e2e/run.sh` | Run the synthetic camera → Frigate review → canonical clip pipeline | **built** | [`tests/e2e/run.sh`](tests/e2e/run.sh) |
-| `scripts/doctor.sh` | Diagnose a broken installation | planned | [`install.md`](docs/install.md) |
+| `scripts/doctor.sh` | Diagnose a broken installation | **built** | [`lld/07`](internal/architecture/lld/07-installer-and-host-profiles.md) §10 |
 
 Client-site packaging is specified in [`.private/plans/packaging.md`](.private/plans/packaging.md):
 `install.sh` remains the on-host entry point, but a client receives a signed release

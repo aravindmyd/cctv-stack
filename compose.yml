@@ -239,6 +239,25 @@ services:
       - ${CCTV_DATA_DIR:-./data}:/data
       - ./.env:/site/.env:ro
 
+  # Read-only diagnosis (lld/07 §10). Not started with the stack: `./scripts/doctor.sh`
+  # runs it on demand. It reaches its siblings over the compose network, so it needs no
+  # Docker socket and no privileges on the host.
+  doctor:
+    <<: *cctv-image
+    profiles: ["ops"]
+    restart: "no"
+    command: ["cctv-doctor"]
+    env_file: [.env]
+    environment:
+      CCTV_CONFIG_DIR: /config
+      CCTV_DATA_DIR: /data
+      CCTV_DB: /data/cctv.db
+      CCTV_ENV_FILE: /site/.env
+    volumes:
+      - ./config:/config:ro
+      - ${CCTV_DATA_DIR:-./data}:/data
+      - ./.env:/site/.env:ro
+
 volumes:
   # Gatus's own history. A named volume rather than a host directory because Docker creates a
   # missing bind-mount source as root, which is the ownership trap a fresh install fell into.

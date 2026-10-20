@@ -372,6 +372,28 @@ pipeline keeps working either way.
 
 ## Hardware acceleration
 
+!!! warning "Not working on Frigate 0.18.2 (measured 2026-10-20)"
+    Both options below are wired end to end and were tried on real hardware (Intel UHD 630,
+    Debian 13 VM, three 2560×1440 cameras). **Neither produced a working pipeline**, and both
+    fail in ways that look like success until you look at frame counts:
+
+    - `frigate.hwaccel: vaapi` — the capture process reports ~5 fps but **`process_fps` stays 0
+      and `skipped_fps` equals `camera_fps`**: every frame is discarded. Frigate then logs
+      `Too many unprocessed recording segments in cache` and writes no recordings, and the UI
+      shows **"No frames have been received, check error logs"** on every camera. The global
+      `ffmpeg.hwaccel_args` applies `-hwaccel_output_format vaapi` to the **detect** input too,
+      and that path does not deliver frames this Frigate can process.
+    - `frigate.detector: openvino` — every camera process dies at start-up with
+      `TypeError: buffer is too small for requested array`
+      (`object_detection/base.py:401`), so nothing is processed at all. A **fresh container**
+      (clean `/dev/shm`) gives the same error, so it is not stale shared memory.
+
+    The device itself is fine: `/dev/dri/renderD128` is visible, `vainfo` reports H.264 decode,
+    and `openvino.Core().available_devices` returns `['CPU', 'GPU']`. The problem is inside
+    Frigate's use of them, not in the passthrough. **Leave `hwaccel: off` and `detector: cpu`
+    until this is understood** — and verify a change by `process_fps` and `detection_fps`, never
+    by the detector's name appearing in `/api/stats`.
+
 Frigate decodes every stream on the CPU unless you name an accelerator:
 
 ```yaml
@@ -421,15 +443,13 @@ explicit rather than `AUTO` on purpose — a silent fallback to CPU produces a m
 accelerated and is not, which is the failure the host profiles exist to prevent. Everything else
 is unchanged: same model, same object filters, same clips.
 
-Measured on a 3-camera site (2560×1440 mains, 4-core VM): with the built-in CPU detector the
-**detector process alone held 155 %**, and the container ranged **~130–330 %**. With OpenVINO on
-the UHD 630 that process disappears from the top of `ps`, and the container ranges **~11 % on a
-quiet scene to ~145 % while recording segments are being muxed** — what remains is the muxer and
-Frigate's main process, neither of which an accelerator replaces.
+On a 3-camera site (2560×1440 mains, 4-core VM) the built-in CPU detector costs what it costs:
+**155 %** for the detector process, **~130–330 %** for the container as a whole. The GPU offer is
+real — the detector is the largest single process — but until the two failures above are fixed,
+removing it means leaving it on the CPU.
 
-Compare like with like: sample only once `/api/stats` shows every camera at its normal fps, and
-describe the *scene* as well as the number. A reading taken seconds after a restart measures
-start-up; a reading on an empty driveway measures idleness.
+When a configuration *does* work, compare like with like: sample only once `/api/stats` shows
+every camera at its normal fps, quote a range rather than one reading, and name the scene.
 
 The decode half is required first — the detector and the decoder share the same device, and
 `compose.gpu.yml` is what makes either possible.

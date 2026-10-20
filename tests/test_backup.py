@@ -136,7 +136,9 @@ def test_every_artefact_is_owner_only(site: backup.BackupSettings) -> None:
         assert _mode(path) == 0o600, path
 
 
-def test_the_database_is_snapshotted_with_the_backup_api(site: backup.BackupSettings) -> None:
+def test_the_database_is_snapshotted_with_the_backup_api(
+    site: backup.BackupSettings,
+) -> None:
     """The output is a real database, and reopening it is what proves it."""
     result = backup.create(site, now=NOW)
 
@@ -236,7 +238,9 @@ def test_a_backup_that_stopped_being_taken_is_reported_stale(
 # ---------------------------------------------------------------------------------------
 
 
-def test_restore_state_refuses_to_overwrite_without_force(site: backup.BackupSettings) -> None:
+def test_restore_state_refuses_to_overwrite_without_force(
+    site: backup.BackupSettings,
+) -> None:
     result = backup.create(site, now=NOW)
 
     with pytest.raises(backup.BackupError) as caught:
@@ -272,7 +276,9 @@ def test_restore_config_recovers_the_files_and_keeps_aside_what_it_replaces(
     site: backup.BackupSettings,
 ) -> None:
     result = backup.create(site, now=NOW)
-    (site.config_dir / "cameras.yml").write_text("site: {location: edited}\n", encoding="utf-8")
+    (site.config_dir / "cameras.yml").write_text(
+        "site: {location: edited}\n", encoding="utf-8"
+    )
 
     written = backup.restore_config(site, source=result.config_bundle)
 
@@ -305,7 +311,9 @@ def test_restore_config_refuses_a_bundle_that_escapes_the_target(
             source=evil,
         )
 
-    assert "unsafe path" in str(caught.value) or "refusing to extract" in str(caught.value)
+    assert "unsafe path" in str(caught.value) or "refusing to extract" in str(
+        caught.value
+    )
 
 
 # ---------------------------------------------------------------------------------------

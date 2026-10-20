@@ -78,6 +78,7 @@ cctv-status = "cctv.status_service:main"
 cctv-host = "cctv.host_cli:main"
 cctv-backup = "cctv.backup:main"
 cctv-doctor = "cctv.doctor:main"
+cctv-migrate = "cctv.migrate:main"
 
 [project.urls]
 Homepage = "https://github.com/aravindmyd/cctv-stack"

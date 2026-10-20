@@ -122,7 +122,9 @@ class DoctorSettings:
 
 
 def _http_json(url: str, *, timeout: float = 5.0) -> Mapping[str, Any]:
-    with urllib.request.urlopen(url, timeout=timeout) as response:  # fixed scheme, internal URL
+    with urllib.request.urlopen(
+        url, timeout=timeout
+    ) as response:  # fixed scheme, internal URL
         return json.loads(response.read().decode("utf-8"))
 
 
@@ -229,7 +231,9 @@ class Report:
                 if detail:
                     lines.append(f"           {detail}")
         lines.append("")
-        lines.append("────────────────────────────────────────────────────────────────────")
+        lines.append(
+            "────────────────────────────────────────────────────────────────────"
+        )
         lines.append(
             f"  {counts[FAIL]} failed · {counts[WARN]} warnings · "
             f"{counts[OK]} passed · {counts[SKIP]} skipped"
@@ -256,7 +260,11 @@ def _check_host(settings: DoctorSettings, probes: Probes) -> list[Finding]:
     try:
         detection = probes.detect_host()
     except Exception as exc:  # a check must never take doctor down
-        return [Finding(section, "detection", FAIL, f"could not inspect this machine: {exc}")]
+        return [
+            Finding(
+                section, "detection", FAIL, f"could not inspect this machine: {exc}"
+            )
+        ]
 
     findings = [
         Finding(
@@ -273,7 +281,12 @@ def _check_host(settings: DoctorSettings, probes: Probes) -> list[Finding]:
     ]
     if detection.profile is None:
         findings.append(
-            Finding(section, "profile", FAIL, detection.unsupported_reason or "unsupported host")
+            Finding(
+                section,
+                "profile",
+                FAIL,
+                detection.unsupported_reason or "unsupported host",
+            )
         )
     else:
         profile = detection.profile
@@ -295,13 +308,17 @@ def _check_storage(settings: DoctorSettings, probes: Probes) -> list[Finding]:
     findings: list[Finding] = []
 
     if not settings.data_dir.is_dir():
-        return [Finding(section, "data-dir", FAIL, f"{settings.data_dir} does not exist")]
+        return [
+            Finding(section, "data-dir", FAIL, f"{settings.data_dir} does not exist")
+        ]
 
     probe_file = settings.data_dir / ".doctor-write-test"
     try:
         probe_file.write_text("doctor", encoding="utf-8")
         probe_file.unlink()
-        findings.append(Finding(section, "writable", OK, f"{settings.data_dir} is writable"))
+        findings.append(
+            Finding(section, "writable", OK, f"{settings.data_dir} is writable")
+        )
     except OSError as exc:
         findings.append(Finding(section, "writable", FAIL, f"cannot write: {exc}"))
 
@@ -325,7 +342,12 @@ def _check_storage(settings: DoctorSettings, probes: Probes) -> list[Finding]:
         findings.append(Finding(section, "clips", OK, f"{clips} present"))
     else:
         findings.append(
-            Finding(section, "clips", WARN, f"{clips} is missing; nothing is being materialised")
+            Finding(
+                section,
+                "clips",
+                WARN,
+                f"{clips} is missing; nothing is being materialised",
+            )
         )
     return findings
 
@@ -336,7 +358,9 @@ def _check_config(settings: DoctorSettings, probes: Probes) -> list[Finding]:
     cameras_file = settings.config_dir / "cameras.yml"
 
     if not cameras_file.exists():
-        findings.append(Finding(section, "cameras.yml", FAIL, f"{cameras_file} is missing"))
+        findings.append(
+            Finding(section, "cameras.yml", FAIL, f"{cameras_file} is missing")
+        )
     else:
         try:
             config = load_cameras_config(cameras_file)
@@ -345,7 +369,9 @@ def _check_config(settings: DoctorSettings, probes: Probes) -> list[Finding]:
         else:
             enabled = len(config.enabled_cameras())
             findings.append(
-                Finding(section, "cameras.yml", OK, f"valid, {enabled} enabled camera(s)")
+                Finding(
+                    section, "cameras.yml", OK, f"valid, {enabled} enabled camera(s)"
+                )
             )
             for warning in getattr(config, "warnings", ()):
                 findings.append(Finding(section, "warning", WARN, warning))
@@ -365,7 +391,9 @@ def _check_config(settings: DoctorSettings, probes: Probes) -> list[Finding]:
             findings.append(Finding(section, ".env", OK, f"present, mode {mode:04o}"))
     else:
         findings.append(
-            Finding(section, ".env", WARN, f"{settings.env_file} not found at this path")
+            Finding(
+                section, ".env", WARN, f"{settings.env_file} not found at this path"
+            )
         )
 
     generated = settings.config_dir / "frigate" / "config.yml"
@@ -397,7 +425,9 @@ def _check_database(
 ) -> tuple[list[Finding], db.QueueSummary | None]:
     section = "database"
     if not settings.db_path.exists():
-        return [Finding(section, "state.db", FAIL, f"{settings.db_path} does not exist")], None
+        return [
+            Finding(section, "state.db", FAIL, f"{settings.db_path} does not exist")
+        ], None
 
     findings: list[Finding] = []
     summary: db.QueueSummary | None = None
@@ -405,7 +435,9 @@ def _check_database(
     try:
         conn = db.open_db(settings.db_path, readonly=True)
         db.integrity_check(conn)
-        findings.append(Finding(section, "integrity", OK, "PRAGMA integrity_check passed"))
+        findings.append(
+            Finding(section, "integrity", OK, "PRAGMA integrity_check passed")
+        )
 
         actual = db.schema_version(conn)
         expected = _expected_schema_version()
@@ -430,7 +462,9 @@ def _check_database(
                 )
             )
         summary = db.queue_summary(conn, now=now)
-        counts = ", ".join(f"{name}={n}" for name, n in sorted(summary.counts.items()) if n)
+        counts = ", ".join(
+            f"{name}={n}" for name, n in sorted(summary.counts.items()) if n
+        )
         findings.append(Finding(section, "clips", OK, counts or "no clips recorded"))
     except (sqlite3.Error, db.DbError, OSError) as exc:
         findings.append(Finding(section, "state.db", FAIL, str(exc)))
@@ -463,10 +497,14 @@ def _check_connectivity(settings: DoctorSettings, probes: Probes) -> list[Findin
     try:
         stats = probes.http_json(settings.frigate_url + "/api/stats")
     except (urllib.error.URLError, OSError, ValueError) as exc:
-        findings.append(Finding(section, "frigate", FAIL, f"{settings.frigate_url}: {exc}"))
+        findings.append(
+            Finding(section, "frigate", FAIL, f"{settings.frigate_url}: {exc}")
+        )
     else:
         version = str(stats.get("service", {}).get("version", "unknown"))
-        findings.append(Finding(section, "frigate", OK, f"{settings.frigate_url}, v{version}"))
+        findings.append(
+            Finding(section, "frigate", OK, f"{settings.frigate_url}, v{version}")
+        )
 
     if probes.tcp_open(settings.mosquitto_host, settings.mosquitto_port):
         findings.append(
@@ -501,11 +539,15 @@ def _check_pipeline(
     if summary is not None:
         age = summary.oldest_pending_age_s
         if age is None:
-            findings.append(Finding(section, "backlog", OK, "nothing waiting to upload"))
+            findings.append(
+                Finding(section, "backlog", OK, "nothing waiting to upload")
+            )
         else:
             state = OK if age < BACKLOG_WARN_S else WARN
             findings.append(
-                Finding(section, "backlog", state, f"oldest pending is {age / 60:.0f} min")
+                Finding(
+                    section, "backlog", state, f"oldest pending is {age / 60:.0f} min"
+                )
             )
 
         failed = summary.counts.get("FAILED_PERMANENT", 0)
@@ -528,15 +570,24 @@ def _check_pipeline(
         conn = db.open_db(settings.db_path, readonly=True)
         last = db.last_clip_per_camera(conn)
         if not last:
-            findings.append(Finding(section, "camera-clips", WARN, "no camera has produced a clip"))
+            findings.append(
+                Finding(section, "camera-clips", WARN, "no camera has produced a clip")
+            )
         for camera, started in sorted(last.items()):
             age_s = now - started
             state = OK if age_s < QUIET_CAMERA_WARN_S else WARN
             findings.append(
-                Finding(section, f"camera {camera}", state, f"last clip {age_s / 3600:.1f} h ago")
+                Finding(
+                    section,
+                    f"camera {camera}",
+                    state,
+                    f"last clip {age_s / 3600:.1f} h ago",
+                )
             )
     except (sqlite3.Error, db.DbError, OSError) as exc:
-        findings.append(Finding(section, "camera-clips", SKIP, f"cannot read clip history: {exc}"))
+        findings.append(
+            Finding(section, "camera-clips", SKIP, f"cannot read clip history: {exc}")
+        )
     finally:
         if conn is not None:
             conn.close()
@@ -562,7 +613,9 @@ def _check_versions() -> list[Finding]:
 # ---------------------------------------------------------------------------------------
 
 
-def run(settings: DoctorSettings | None = None, *, probes: Probes | None = None) -> Report:
+def run(
+    settings: DoctorSettings | None = None, *, probes: Probes | None = None
+) -> Report:
     """Run every check and return the report. Never raises on a broken dependency."""
     settings = settings or DoctorSettings.from_environ()
     probes = probes or Probes()
@@ -600,7 +653,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         args.save.mkdir(parents=True, exist_ok=True)
         stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime(report.generated_at))
         target = args.save / f"doctor-{stamp}.json"
-        target.write_text(json.dumps(report.to_dict(), indent=2) + "\n", encoding="utf-8")
+        target.write_text(
+            json.dumps(report.to_dict(), indent=2) + "\n", encoding="utf-8"
+        )
         if not args.json:
             print(f"report written to {target}", file=sys.stderr)
 

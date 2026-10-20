@@ -276,9 +276,7 @@ def test_restore_config_recovers_the_files_and_keeps_aside_what_it_replaces(
     site: backup.BackupSettings,
 ) -> None:
     result = backup.create(site, now=NOW)
-    (site.config_dir / "cameras.yml").write_text(
-        "site: {location: edited}\n", encoding="utf-8"
-    )
+    (site.config_dir / "cameras.yml").write_text("site: {location: edited}\n", encoding="utf-8")
 
     written = backup.restore_config(site, source=result.config_bundle)
 
@@ -311,9 +309,7 @@ def test_restore_config_refuses_a_bundle_that_escapes_the_target(
             source=evil,
         )
 
-    assert "unsafe path" in str(caught.value) or "refusing to extract" in str(
-        caught.value
-    )
+    assert "unsafe path" in str(caught.value) or "refusing to extract" in str(caught.value)
 
 
 # ---------------------------------------------------------------------------------------

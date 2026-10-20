@@ -28,9 +28,7 @@ def site(tmp_path: Path) -> Path:
     shutil.copy(SCRIPT, root / "uninstall.sh")
     (root / "uninstall.sh").chmod(0o755)
     shutil.copy(REPO / "compose.yml", root / "compose.yml")
-    (root / ".env").write_text(
-        "CCTV_SITE=parents-home\nCCTV_DATA_DIR=./data\n", encoding="utf-8"
-    )
+    (root / ".env").write_text("CCTV_SITE=parents-home\nCCTV_DATA_DIR=./data\n", encoding="utf-8")
     (root / "config" / "cameras.yml").write_text(
         "site: {location: parents-home}\n", encoding="utf-8"
     )
@@ -77,9 +75,7 @@ def _docker_calls(site: Path) -> list[str]:
     log = site / "docker.log"
     if not log.exists():
         return []
-    return [
-        line for line in log.read_text(encoding="utf-8").splitlines() if line.strip()
-    ]
+    return [line for line in log.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
 def test_default_keeps_everything(site: Path) -> None:

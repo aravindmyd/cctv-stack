@@ -16,9 +16,7 @@ import pytest
 from cctv import db, migrate
 
 
-def test_fresh_database_is_migrated(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_fresh_database_is_migrated(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     target = tmp_path / "cctv.db"
     sqlite3.connect(target).close()
 
@@ -41,9 +39,7 @@ def migrate_expected_version() -> int:
     return max(versions, default=0)
 
 
-def test_current_database_is_a_no_op(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_current_database_is_a_no_op(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     target = tmp_path / "cctv.db"
     conn = db.open_db(target)
     db.migrate(conn)
@@ -83,9 +79,7 @@ def test_corrupt_database_fails_without_traceback(
     assert "error:" in capsys.readouterr().err
 
 
-def test_json_failure_is_still_json(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_json_failure_is_still_json(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     target = tmp_path / "cctv.db"
     target.write_bytes(b"this is not a database")
 

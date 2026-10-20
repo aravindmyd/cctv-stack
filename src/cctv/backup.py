@@ -82,8 +82,7 @@ class BackupSettings:
             out_dir=Path(env.get("CCTV_BACKUP_DIR", str(data_dir / "backups"))),
             env_file=(Path(env["CCTV_ENV_FILE"]) if env.get("CCTV_ENV_FILE") else None),
             passphrase=(env.get("CCTV_BACKUP_PASSPHRASE") or "").strip() or None,
-            unencrypted=(env.get("CCTV_BACKUP_UNENCRYPTED") or "").strip()
-            in {"1", "true"},
+            unencrypted=(env.get("CCTV_BACKUP_UNENCRYPTED") or "").strip() in {"1", "true"},
         )
 
 
@@ -339,9 +338,7 @@ def verify(
     """Check the newest backup end to end: checksums, openability, and freshness."""
     manifest_path = settings.out_dir / "MANIFEST"
     if not manifest_path.is_file():
-        return VerifyResult(
-            ok=False, problems=("no MANIFEST: no backup has been taken",)
-        )
+        return VerifyResult(ok=False, problems=("no MANIFEST: no backup has been taken",))
 
     entries = _read_manifest(manifest_path)
     problems: list[str] = []
@@ -354,14 +351,10 @@ def verify(
             problems.append(f"checksum mismatch: {name}")
 
     config_name = next((n for n in entries if n.startswith("config-")), None)
-    state_name = next(
-        (n for n in entries if n.startswith("state-") and n.endswith(".db")), None
-    )
+    state_name = next((n for n in entries if n.startswith("state-") and n.endswith(".db")), None)
     csv_name = next((n for n in entries if n.endswith(".manifest.csv")), None)
     if config_name is None or state_name is None:
-        problems.append(
-            "the MANIFEST does not name both a config bundle and a state database"
-        )
+        problems.append("the MANIFEST does not name both a config bundle and a state database")
 
     config_files = 0
     if config_name is not None and (settings.out_dir / config_name).is_file():
@@ -370,17 +363,13 @@ def verify(
             if source.name.endswith(".enc"):
                 key = passphrase or settings.passphrase
                 if not key:
-                    problems.append(
-                        "the config bundle is encrypted and no passphrase was provided"
-                    )
+                    problems.append("the config bundle is encrypted and no passphrase was provided")
                 else:
                     plain = Path(scratch) / "config.tar.gz"
                     try:
                         _decrypt(source, plain, passphrase=key)
                         with tarfile.open(plain, "r:gz") as archive:
-                            config_files = len(
-                                [m for m in archive.getmembers() if m.isfile()]
-                            )
+                            config_files = len([m for m in archive.getmembers() if m.isfile()])
                     except (BackupError, tarfile.TarError) as exc:
                         problems.append(f"config bundle unreadable: {exc}")
             else:
@@ -405,9 +394,7 @@ def verify(
         with (settings.out_dir / csv_name).open(encoding="utf-8") as handle:
             rows = max(0, sum(1 for _ in handle) - 1)
         if clips_in_backup and rows != clips_in_backup:
-            problems.append(
-                f"manifest lists {rows} clips but the database holds {clips_in_backup}"
-            )
+            problems.append(f"manifest lists {rows} clips but the database holds {clips_in_backup}")
 
     clips_live: int | None = None
     age: float | None = None
@@ -424,9 +411,7 @@ def verify(
     try:
         live = db.open_db(settings.db_path, readonly=True)
         try:
-            clips_live = int(
-                live.execute("SELECT COUNT(*) AS n FROM clips").fetchone()["n"]
-            )
+            clips_live = int(live.execute("SELECT COUNT(*) AS n FROM clips").fetchone()["n"])
         finally:
             live.close()
     except (db.DbError, OSError):
@@ -452,9 +437,7 @@ def verify(
     )
 
 
-def restore_state(
-    settings: BackupSettings, *, source: Path, force: bool = False
-) -> Path:
+def restore_state(settings: BackupSettings, *, source: Path, force: bool = False) -> Path:
     """Replace the state database, keeping the current one as a safety copy.
 
     Refuses to overwrite an existing database unless `force` is set: a restore is the one
@@ -508,17 +491,13 @@ def restore_config(
         plain = source
         if source.name.endswith(".enc"):
             if not key:
-                raise BackupError(
-                    "the config bundle is encrypted; set CCTV_BACKUP_PASSPHRASE."
-                )
+                raise BackupError("the config bundle is encrypted; set CCTV_BACKUP_PASSPHRASE.")
             plain = Path(scratch) / "config.tar.gz"
             _decrypt(source, plain, passphrase=key)
         with tarfile.open(plain, "r:gz") as archive:
             for member in archive.getmembers():
                 if not (member.isfile() or member.isdir()):
-                    raise BackupError(
-                        f"refusing to extract {member.name}: not a plain file"
-                    )
+                    raise BackupError(f"refusing to extract {member.name}: not a plain file")
                 # A bundle is data we produced, but it can arrive from a USB stick. Refuse
                 # absolute names and any `..` rather than trusting the archive.
                 parts = Path(member.name).parts
@@ -532,9 +511,7 @@ def restore_config(
                 if target is None:
                     continue
                 if target.exists() and not force:
-                    shutil.copyfile(
-                        target, target.with_suffix(target.suffix + ".pre-restore")
-                    )
+                    shutil.copyfile(target, target.with_suffix(target.suffix + ".pre-restore"))
                 # `filter="data"` refuses links and devices even if a check above misses one.
                 archive.extract(member, path=scratch, filter="data")
                 source_path = Path(scratch) / member.name
@@ -569,9 +546,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         settings = BackupSettings.from_environ()
         if args.command == "create":
-            result = create(
-                replace(settings, unencrypted=settings.unencrypted or args.unencrypted)
-            )
+            result = create(replace(settings, unencrypted=settings.unencrypted or args.unencrypted))
             print(
                 json.dumps(
                     {

@@ -16,9 +16,11 @@ should find out before it is running, not after an outage.
 ## What is v0.1 and what is not
 
 The generator emits a **generic/CPU host profile**: `ffmpeg` inputs from the local go2rtc
-restream, a CPU detector, detection resolution. Hardware acceleration profiles
-(`hwaccel_args`, Coral detectors, model selection) belong to
-[LLD 07](../../../internal/architecture/lld/07-installer-and-host-profiles.md) and are not
+restream, a CPU detector, detection resolution. Hardware acceleration is opt-in per site
+(`frigate.hwaccel: vaapi|qsv`), because only the operator knows whether the device was passed
+through; it emits `ffmpeg.hwaccel_args` and nothing else. The rest of the host-profile work
+(Coral detectors, OpenVINO, model selection) belongs to
+[LLD 07](../../../internal/architecture/lld/07-installer-and-host-profiles.md) and is not
 guessed at here. A generated config that is obviously missing a profile is better than one
 that quietly picked the wrong one.
 
@@ -116,6 +118,13 @@ def build_frigate_config(config: CamerasConfig) -> dict[str, Any]:
         "detectors": {"cpu": {"type": "cpu", "num_threads": 2}},
         "objects": {"track": sorted(tracked)},
     }
+
+    # Global, not per input: recording, detection and the live view all decode the same
+    # streams, and Frigate applies `ffmpeg.hwaccel_args` to every role. Absent entirely when
+    # acceleration is off, so a machine without the device keeps the CPU path it had.
+    hwaccel_args = config.hwaccel_args()
+    if hwaccel_args is not None:
+        out["ffmpeg"] = {"hwaccel_args": hwaccel_args}
     # No `timezone` here, and that is load-bearing: Frigate 0.18 rejects the whole config if
     # a top-level `timezone` is present and starts in safe mode with no cameras. See
     # `to_frigate` for why.

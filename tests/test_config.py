@@ -246,6 +246,49 @@ def test_frigate_auth_needs_a_real_boolean(tmp_path: Path) -> None:
         load(tmp_path, "frigate:\n  auth:\n    enabled: yes\n" + BASE)
 
 
+def test_hardware_acceleration_is_off_by_default(tmp_path: Path) -> None:
+    """Off is the safe default: a preset on a machine without the device fails every
+    ffmpeg input, and Frigate reports that as a camera delivering no frames."""
+    cfg = load(tmp_path)
+
+    assert cfg.frigate_hwaccel == "off"
+    assert cfg.hwaccel_args() is None
+
+
+def test_hardware_acceleration_maps_to_frigates_preset(tmp_path: Path) -> None:
+    """The operator names hardware; the spelling Frigate wants lives in one mapping."""
+    cfg = load(tmp_path, "frigate:\n  hwaccel: vaapi\n" + BASE)
+
+    assert cfg.frigate_hwaccel == "vaapi"
+    assert cfg.hwaccel_args() == "preset-vaapi"
+
+
+def test_qsv_is_its_own_preset(tmp_path: Path) -> None:
+    cfg = load(tmp_path, "frigate:\n  hwaccel: QSV\n" + BASE)
+
+    assert cfg.frigate_hwaccel == "qsv"
+    assert cfg.hwaccel_args() == "preset-qsv"
+
+
+def test_an_unknown_accelerator_is_refused(tmp_path: Path) -> None:
+    """`preset-vaapi` here is the operator guessing at Frigate's spelling; accepting it
+    would hide the mapping, and accepting `nvidia` would promise a runtime this stack does
+    not configure."""
+    with pytest.raises(ConfigError, match="off, qsv, vaapi"):
+        load(tmp_path, "frigate:\n  hwaccel: preset-vaapi\n" + BASE)
+
+
+def test_hwaccel_and_the_ui_login_can_coexist(tmp_path: Path) -> None:
+    """Both live under `frigate:`; parsing one must not discard the other."""
+    cfg = load(
+        tmp_path,
+        "frigate:\n  auth:\n    enabled: true\n  hwaccel: vaapi\n" + BASE,
+    )
+
+    assert cfg.frigate_auth.enabled is True
+    assert cfg.hwaccel_args() == "preset-vaapi"
+
+
 # --------------------------------------------------------------------------------------
 # Cross-field rules
 # --------------------------------------------------------------------------------------

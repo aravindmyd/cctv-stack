@@ -369,3 +369,40 @@ frigate:
 
 See [Frigate UI login](frigate-ui.md) for the password, the reset procedure, and why the
 pipeline keeps working either way.
+
+## Hardware acceleration
+
+Frigate decodes every stream on the CPU unless you name an accelerator:
+
+```yaml
+frigate:
+  hwaccel: vaapi      # or qsv on Intel hardware with Quick Sync; `off` is the default
+```
+
+That emits exactly one line into the generated config — `ffmpeg.hwaccel_args: preset-vaapi` —
+and nothing when the key is absent or `off`. **The device must also be visible inside the
+container**, which is a compose matter rather than a config one:
+
+```bash
+cp compose.gpu.yml compose.override.yml      # Compose loads this file automatically
+docker compose up -d --force-recreate frigate
+```
+
+`compose.override.yml` is not shipped or replaced by a release (only `compose.yml` is), so this
+is a one-time step per site and every later `docker compose up -d` keeps the GPU.
+
+Doing only one half fails in opposite ways:
+
+| Done | Result |
+|---|---|
+| Device only | Frigate decodes on the CPU exactly as before — no error, no gain |
+| Args only | Every ffmpeg input fails on the missing accelerator; cameras report no frames |
+
+Before trusting either, check both: `docker compose logs frigate | grep -iE 'vaapi|qsv'` should
+name the device, and CPU use in `/api/stats` should fall once the main streams stop being
+decoded in software.
+
+On a VM, `ls -l /dev/dri/renderD128` has to work first — the GPU must be passed through
+(`hostpci0`) **and** the guest kernel must have `i915`. Debian's *cloud* kernel has no GPU
+drivers at all, so `linux-image-amd64` is required; see `docs/41` §6.4 in the home-lab repo for
+the full sequence.

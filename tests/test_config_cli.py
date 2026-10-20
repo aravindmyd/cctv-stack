@@ -378,6 +378,24 @@ def test_the_ui_login_is_emitted_when_the_site_asks_for_it(tmp_path: Path) -> No
     assert out["auth"] == {"enabled": True}
 
 
+def test_hardware_acceleration_is_absent_when_off(tmp_path: Path) -> None:
+    """Absent, not empty: every site gets the CPU path unless it opts in, and a stray
+    `ffmpeg` block would be the first thing to blame when a decode fails."""
+    out = build_frigate_config(make_config(tmp_path))
+
+    assert "ffmpeg" not in out
+
+
+def test_hardware_acceleration_is_emitted_as_a_global_ffmpeg_arg(tmp_path: Path) -> None:
+    """Global on purpose — record, detect and the live view all decode these streams, and
+    one decision should not become three copies of the same arguments."""
+    text = "frigate:\n  hwaccel: vaapi\n" + BASE
+
+    out = build_frigate_config(make_config(tmp_path, text))
+
+    assert out["ffmpeg"] == {"hwaccel_args": "preset-vaapi"}
+
+
 def test_the_generated_file_carries_no_top_level_timezone(tmp_path: Path) -> None:
     """Frigate 0.18 refuses the whole config when a top-level `timezone` is present
     (`Extra inputs are not permitted`) and then starts in safe mode with zero cameras —

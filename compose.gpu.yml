@@ -1,0 +1,26 @@
+# Intel iGPU (VAAPI / QSV) override — a device, not a profile.
+#
+# Compose does not auto-load this file. Either merge it explicitly:
+#
+#   docker compose -f compose.yml -f compose.gpu.yml up -d
+#
+# …or copy it to `compose.override.yml`, which Compose *does* read automatically and which
+# this project never ships or overwrites — that keeps every later `docker compose up -d`
+# (including `install.sh` and `update.sh`) using the GPU without anyone remembering a flag.
+#
+# Two halves are required and neither works alone:
+#   1. this file           — makes /dev/dri visible inside the container
+#   2. frigate.hwaccel     — in config/cameras.yml, emits `ffmpeg.hwaccel_args` into the
+#                            generated config (vaapi → preset-vaapi, qsv → preset-qsv)
+#
+# Only use this where the device exists on the host (`ls -l /dev/dri/renderD128`). On a VM
+# that means the GPU was passed through (`hostpci0`) and the guest kernel has `i915`; a
+# Debian *cloud* kernel has no GPU drivers at all.
+services:
+  frigate:
+    devices:
+      - /dev/dri:/dev/dri
+    environment:
+      # Intel's media driver. Frigate's image ships it; naming it here stops libva from
+      # falling back to the older i965 driver on hardware that still advertises one.
+      LIBVA_DRIVER_NAME: iHD

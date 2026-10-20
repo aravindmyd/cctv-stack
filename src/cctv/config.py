@@ -169,6 +169,15 @@ class FrigateAuthConfig:
     enabled: bool = False
 
 
+#: `frigate.hwaccel` → the `hwaccel_args` preset Frigate is given. `off` emits nothing, which
+#: is the safe default: a preset on a machine without the accelerator fails every ffmpeg
+#: input, and Frigate reports that as "no frames", not as "wrong hwaccel".
+HWACCEL_PRESETS: dict[str, str] = {
+    "vaapi": "preset-vaapi",
+    "qsv": "preset-qsv",
+}
+
+
 @dataclass(frozen=True, slots=True)
 class CamerasConfig:
     site: SiteConfig
@@ -178,6 +187,14 @@ class CamerasConfig:
     warnings: tuple[str, ...] = ()
     min_headroom_days: int = DEFAULT_MIN_HEADROOM_DAYS
     frigate_auth: FrigateAuthConfig = FrigateAuthConfig()
+    #: One of `off`, `vaapi`, `qsv`. Kept as the config word rather than the preset string so
+    #: the operator writes what the hardware is, and the mapping to Frigate's spelling lives
+    #: in one place (`HWACCEL_PRESETS`).
+    frigate_hwaccel: str = "off"
+
+    def hwaccel_args(self) -> str | None:
+        """The `hwaccel_args` value to emit, or `None` when acceleration is off."""
+        return HWACCEL_PRESETS.get(self.frigate_hwaccel)
 
     def enabled_cameras(self) -> Mapping[str, CameraConfig]:
         return {n: c for n, c in self.cameras.items() if c.enabled}
@@ -275,7 +292,9 @@ def load_cameras_config(
 
     warnings: list[str] = []
     site = _parse_site(data["site"], warnings)
-    frigate_auth = _parse_frigate_auth(data.get("frigate"))
+    frigate_raw = data.get("frigate")
+    frigate_auth = _parse_frigate_auth(frigate_raw)
+    frigate_hwaccel = _parse_frigate_hwaccel(frigate_raw)
     defaults = data.get("defaults") or {}
     if not isinstance(defaults, Mapping):
         raise ConfigError(f"{source}: `defaults` must be a mapping.")
@@ -302,6 +321,7 @@ def load_cameras_config(
         warnings=tuple(warnings),
         min_headroom_days=min_headroom,
         frigate_auth=frigate_auth,
+        frigate_hwaccel=frigate_hwaccel,
     )
 
 
@@ -359,7 +379,7 @@ def _deep_merge(base: Mapping[str, Any], override: Mapping[str, Any]) -> dict[st
 
 
 def _parse_frigate_auth(data: Any) -> FrigateAuthConfig:
-    """`frigate:` holds process-wide Frigate settings. Today that is one switch.
+    """`frigate.auth` — whether Frigate's own UI login is on.
 
     It is deliberately not part of `defaults`: `defaults` is *camera* inheritance, and a
     camera cannot have its own copy of Frigate's process-wide login setting.
@@ -368,7 +388,7 @@ def _parse_frigate_auth(data: Any) -> FrigateAuthConfig:
         return FrigateAuthConfig()
     if not isinstance(data, Mapping):
         raise ConfigError("frigate: must be a mapping with an `auth` key.")
-    _check_keys(data, frozenset({"auth"}), where="frigate")
+    _check_keys(data, frozenset({"auth", "hwaccel"}), where="frigate")
 
     auth = data.get("auth") or {}
     if not isinstance(auth, Mapping):
@@ -376,6 +396,30 @@ def _parse_frigate_auth(data: Any) -> FrigateAuthConfig:
     _check_keys(auth, frozenset({"enabled"}), where="frigate.auth")
 
     return FrigateAuthConfig(enabled=_bool(auth.get("enabled", False), "frigate.auth.enabled"))
+
+
+def _parse_frigate_hwaccel(data: Any) -> str:
+    """`frigate.hwaccel` — the accelerator Frigate should decode with.
+
+    Refused rather than guessed: a preset the machine cannot run makes every ffmpeg input
+    fail, and Frigate reports that as a camera with no frames — the same silent-fallback
+    trap `host.py` documents. The values are names for *hardware*, not presets; the mapping
+    to Frigate's spelling is `HWACCEL_PRESETS`.
+    """
+    if data is None:
+        return "off"
+    if not isinstance(data, Mapping):
+        raise ConfigError("frigate: must be a mapping with an `auth` key.")
+    value = data.get("hwaccel", "off")
+    if not isinstance(value, str):
+        raise ConfigError("frigate.hwaccel: must be one of off, vaapi, qsv.")
+    word = value.strip().lower()
+    allowed = {"off", *HWACCEL_PRESETS}
+    if word not in allowed:
+        raise ConfigError(
+            f"frigate.hwaccel: {value!r} is not one of {', '.join(sorted(allowed))}."
+        )
+    return word
 
 
 def _parse_site(data: Mapping[str, Any], warnings: list[str]) -> SiteConfig:

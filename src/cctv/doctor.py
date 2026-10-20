@@ -104,6 +104,9 @@ class DoctorSettings:
     frigate_url: str = "http://frigate:5000"
     mosquitto_host: str = "mosquitto"
     mosquitto_port: int = 1883
+    #: The ntfy server the alerts are delivered through. Reachability only: whether a *message*
+    #: arrives is `cctv-notify test`'s question, which the installer asks (`lld/07` §6.2).
+    ntfy_url: str = "http://ntfy:80"
 
     @classmethod
     def from_environ(cls, environ: Mapping[str, str] | None = None) -> DoctorSettings:
@@ -118,6 +121,7 @@ class DoctorSettings:
             frigate_url=env.get("CCTV_FRIGATE_URL", "http://frigate:5000"),
             mosquitto_host=env.get("CCTV_MOSQUITTO_HOST", "mosquitto"),
             mosquitto_port=int(env.get("CCTV_MOSQUITTO_PORT", "1883")),
+            ntfy_url=(env.get("CCTV_STATUS_NTFY_URL") or "http://ntfy:80").rstrip("/"),
         )
 
 
@@ -477,6 +481,23 @@ def _check_connectivity(settings: DoctorSettings, probes: Probes) -> list[Findin
     else:
         version = str(stats.get("service", {}).get("version", "unknown"))
         findings.append(Finding(section, "frigate", OK, f"{settings.frigate_url}, v{version}"))
+
+    try:
+        health = probes.http_json(settings.ntfy_url + "/v1/health")
+    except (urllib.error.URLError, OSError, ValueError) as exc:
+        # Not a FAIL: alerts cannot be delivered, but recording, clips, uploads and retention are
+        # all unaffected. Partial capability is reported as partial (INV-6).
+        findings.append(Finding(section, "notifications", WARN, f"{settings.ntfy_url}: {exc}"))
+    else:
+        healthy = bool(health.get("healthy", False))
+        findings.append(
+            Finding(
+                section,
+                "notifications",
+                OK if healthy else WARN,
+                f"{settings.ntfy_url} reports healthy={healthy}",
+            )
+        )
 
     if probes.tcp_open(settings.mosquitto_host, settings.mosquitto_port):
         findings.append(

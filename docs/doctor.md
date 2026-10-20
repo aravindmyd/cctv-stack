@@ -35,7 +35,7 @@ disagree, and credentials are redacted from it — a camera password never reach
 | **storage** | That the data directory is writable and has room; below 5 GiB free is a warning, because a full disk stops recording |
 | **config** | That `cameras.yml` validates, how many cameras are enabled, that `.env` exists and is not readable by other users, and that Frigate's config has been generated |
 | **database** | That `PRAGMA integrity_check` passes, that the schema version is the one this build expects, the clip counts per state, and the WAL size |
-| **connectivity** | That `uploader`, `cleanup` and `status` answer `/health`, that Frigate answers `/api/stats`, and that MQTT accepts a connection |
+| **connectivity** | That `uploader`, `cleanup` and `status` answer `/health`, that Frigate answers `/api/stats`, that MQTT accepts a connection, and that the ntfy server reports healthy |
 | **pipeline** | The age of the oldest pending upload, any permanently failed uploads, and the last clip from each camera |
 | **versions** | The `cctv` and Python versions running doctor |
 

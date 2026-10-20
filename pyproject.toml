@@ -82,6 +82,7 @@ cctv-migrate = "cctv.migrate:main"
 cctv-init = "cctv.interview:main"
 cctv-provision = "cctv.provision:main"
 cctv-recover = "cctv.recover:main"
+cctv-notify = "cctv.notify:main"
 
 [project.urls]
 Homepage = "https://github.com/aravindmyd/cctv-stack"

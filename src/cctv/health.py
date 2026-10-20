@@ -79,6 +79,7 @@ CODES = frozenset(
         "CAMERA_OFFLINE",
         "CAMERA_QUIET",
         "CLEANUP_STALE",
+        "CLOUD_DELETE_FAILING",
         "CLIPS_OVERDUE_RETENTION",
         "CLIP_COVERAGE_LOW",
         "CLIP_FLUSH_PRESSURE",

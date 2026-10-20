@@ -85,6 +85,18 @@ _DETECTOR_BLOCKS: dict[str, dict[str, Any]] = {
     "openvino": {"ov": {"type": "openvino", "device": "GPU"}},
 }
 
+#: The model Frigate's image ships for the OpenVINO detector. Emitted **with** the detector,
+#: not as an optional extra: `app.py::start_detectors` sizes each camera's shared buffer from
+#: the detector's `model` dimensions and falls back to **320 bytes** when none is configured.
+#: Without this block the detector dies at start-up with
+#: `TypeError: buffer is too small for requested array` and every camera process dies with it.
+_OPENVINO_MODEL: dict[str, Any] = {
+    "path": "/openvino-model/ssdlite_mobilenet_v2.xml",
+    "width": 300,
+    "height": 300,
+    "input_pixel_format": "bgr",
+}
+
 
 def _sub_stream(camera_name: str) -> str:
     """go2rtc stream name for a camera's sub stream. Deterministic, never user-supplied."""
@@ -132,6 +144,10 @@ def build_frigate_config(config: CamerasConfig) -> dict[str, Any]:
     hwaccel_args = config.hwaccel_args()
     if hwaccel_args is not None:
         out["ffmpeg"] = {"hwaccel_args": hwaccel_args}
+
+    if config.frigate_detector == "openvino":
+        # Not optional: the detector's shared buffer is sized from these dimensions.
+        out["model"] = dict(_OPENVINO_MODEL)
     # No `timezone` here, and that is load-bearing: Frigate 0.18 rejects the whole config if
     # a top-level `timezone` is present and starts in safe mode with no cameras. See
     # `to_frigate` for why.

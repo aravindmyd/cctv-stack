@@ -406,6 +406,30 @@ def test_openvino_detection_is_emitted_on_the_gpu(tmp_path: Path) -> None:
     assert out["detectors"] == {"ov": {"type": "openvino", "device": "GPU"}}
 
 
+def test_openvino_emits_the_model_its_buffer_is_sized_from(tmp_path: Path) -> None:
+    """Frigate sizes each camera's shared buffer from the detector's model dimensions and
+    falls back to 320 bytes when none is configured — the detector then dies at start-up with
+    `buffer is too small for requested array`, taking the camera process with it."""
+    text = "frigate:\n  detector: openvino\n" + BASE
+
+    out = build_frigate_config(make_config(tmp_path, text))
+
+    assert out["model"] == {
+        "path": "/openvino-model/ssdlite_mobilenet_v2.xml",
+        "width": 300,
+        "height": 300,
+        "input_pixel_format": "bgr",
+    }
+
+
+def test_the_cpu_detector_emits_no_model_block(tmp_path: Path) -> None:
+    """The CPU detector works without one; emitting a 300x300 OV model would only change what
+    Frigate allocates and loads for no reason."""
+    out = build_frigate_config(make_config(tmp_path))
+
+    assert "model" not in out
+
+
 def test_the_generated_file_carries_no_top_level_timezone(tmp_path: Path) -> None:
     """Frigate 0.18 refuses the whole config when a top-level `timezone` is present
     (`Extra inputs are not permitted`) and then starts in safe mode with zero cameras —

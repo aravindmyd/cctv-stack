@@ -110,8 +110,13 @@ fi
 
 if ((REMOVE_LIFECYCLE)); then
   title "Backblaze B2 lifecycle rule"
-  note "This build creates no lifecycle rule, so there is nothing to remove."
-  note "If you added one by hand, remove it in the B2 console."
+  if grep -q '^CCTV_STORAGE_BUCKET=..*' .env; then
+    run docker compose --profile ops run --rm --no-deps provision \
+      cctv-provision --cameras /config/cameras.yml --remove-lifecycle \
+      || note "could not remove the rule; remove it in the B2 console."
+  else
+    note "No bucket is configured, so there is no rule of ours to remove."
+  fi
 fi
 
 # --- optionally remove state ----------------------------------------------------------

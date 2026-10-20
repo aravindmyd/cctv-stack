@@ -253,6 +253,19 @@ services:
       - ./config:/config
       - ./.env:/site/.env
 
+  # Bucket provisioning (lld/07 §7): create it, set versioning, merge our expiry rule, and
+  # prove all of it with a probe object. Read-write on the bucket, read-only on the host.
+  provision:
+    <<: *cctv-image
+    profiles: ["ops"]
+    restart: "no"
+    command: ["cctv-provision"]
+    env_file: [.env]
+    environment:
+      CCTV_CONFIG_DIR: /config
+    volumes:
+      - ./config:/config:ro
+
   # Brings the schema up to date between stopping the old workers and starting the new
   # containers (lld/09 §4.2). `update.sh` runs this with the *new* image, so the new code
   # performs the migration rather than the old code racing it.

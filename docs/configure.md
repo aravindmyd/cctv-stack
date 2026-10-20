@@ -301,6 +301,34 @@ Set these in `.env`. Defaults are what the services use when the variable is abs
 `B2_BUCKET`, `B2_KEY_ID`, `B2_APPLICATION_KEY`, `B2_REGION`, and `B2_ENDPOINT_URL` are
 accepted as aliases.
 
+### Provisioning the bucket
+
+Filling in those three values is not enough to make cloud backup work. The bucket has to
+exist, the key has to be able to write to it, and something has to stop it growing forever:
+
+```bash
+./scripts/provision.sh              # create, configure, prove
+./scripts/provision.sh --status     # report only, change nothing
+./scripts/provision.sh --remove-lifecycle
+```
+
+It runs seven steps and reports each one: reach the endpoint, create the bucket if absent,
+enable versioning (otherwise every delete is only a *hide*, and the bytes keep billing),
+**merge** our expiry rule into the existing rules rather than replacing them, read the rule
+back, then write a 1 KB probe object, verify it, delete it and confirm it is gone.
+
+That last step is what catches a read-only key, a region mismatch, or a key scoped to a
+different bucket — each of which otherwise shows up days later as an uploader stuck in
+`RETRY_WAIT`.
+
+The rule expires objects under `<location>/clips/` after `retention.cloud_days` (default 60),
+and it is scoped by rule **ID**, so a rule you added yourself on the same prefix is left
+alone. This is the provider-side backstop; the database does not know an object expired until
+cloud retention (M4 J2) and reconciliation (J3) are built.
+
+`./install.sh` runs this for you when a bucket is configured, before the stack starts. A
+failure there is loud but not fatal: local recording does not depend on the bucket.
+
 ### Health and retention
 
 | Variable | Default | Meaning |

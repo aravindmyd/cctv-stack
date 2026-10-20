@@ -32,6 +32,7 @@ Cloud backup    Backblaze B2 bucket + key, or skip
 ```
 
 Then it validates what it wrote with the same loader the stack uses, detects the host,
+provisions the bucket if you gave it one (create, versioning, expiry rule, probe object),
 starts everything, and waits for Frigate. Nothing is started until the configuration is
 valid, and nothing is uploaded anywhere unless you asked for cloud backup.
 

@@ -62,6 +62,10 @@ class FakeS3Client:
         self.created: list[str] = []
         self.deleted: list[str] = []
         self.presigned: list[str] = []
+        self.versioning_response: dict[str, Any] = {}
+        self.versioning_written: list[str] = []
+        self.rules: list[dict[str, Any]] = []
+        self.lifecycle_error: Exception | None = None
 
     # -- bucket ------------------------------------------------------------------------
 
@@ -72,6 +76,24 @@ class FakeS3Client:
 
     def create_bucket(self, **kwargs: Any) -> dict[str, Any]:
         self.created.append(str(kwargs["Bucket"]))
+        return {}
+
+    # -- bucket administration (lld/07 §7) ---------------------------------------------
+
+    def get_bucket_versioning(self, **_kwargs: Any) -> dict[str, Any]:
+        return dict(self.versioning_response)
+
+    def put_bucket_versioning(self, **kwargs: Any) -> dict[str, Any]:
+        self.versioning_written.append(kwargs["VersioningConfiguration"]["Status"])
+        return {}
+
+    def get_bucket_lifecycle_configuration(self, **_kwargs: Any) -> dict[str, Any]:
+        if self.lifecycle_error is not None:
+            raise self.lifecycle_error
+        return {"Rules": [dict(rule) for rule in self.rules]}
+
+    def put_bucket_lifecycle_configuration(self, **kwargs: Any) -> dict[str, Any]:
+        self.rules = [dict(rule) for rule in kwargs["LifecycleConfiguration"]["Rules"]]
         return {}
 
     # -- objects -----------------------------------------------------------------------
@@ -472,6 +494,56 @@ def test_ensure_bucket_propagates_an_auth_failure_rather_than_creating() -> None
     with pytest.raises(storage.AuthStorageError):
         make_adapter(client).ensure_bucket()
     assert client.created == []
+
+
+# --------------------------------------------------------------------------------------
+# Bucket administration (lld/07 §7)
+# --------------------------------------------------------------------------------------
+
+
+def test_ensure_bucket_says_which_of_the_two_happened() -> None:
+    assert make_adapter(FakeS3Client()).ensure_bucket() == "existing"
+    absent = FakeS3Client(head_bucket_error=ClientError("NoSuchBucket", 404))
+    assert make_adapter(absent).ensure_bucket() == "created"
+
+
+def test_versioning_is_unversioned_when_the_provider_says_nothing() -> None:
+    """`{}` means no configuration, which is *not* the same as enabled."""
+    assert make_adapter(FakeS3Client()).versioning() == "Unversioned"
+
+
+def test_versioning_reads_the_provider_status() -> None:
+    client = FakeS3Client()
+    client.versioning_response = {"Status": "Enabled"}
+    assert make_adapter(client).versioning() == "Enabled"
+
+
+def test_set_versioning_asks_for_enabled() -> None:
+    client = FakeS3Client()
+    make_adapter(client).set_versioning(enabled=True)
+    assert client.versioning_written == ["Enabled"]
+
+
+def test_a_bucket_without_rules_reports_none_rather_than_failing() -> None:
+    """`NoSuchLifecycleConfiguration` is the normal state of a fresh bucket."""
+    client = FakeS3Client()
+    client.lifecycle_error = ClientError("NoSuchLifecycleConfiguration", 404)
+    assert make_adapter(client).lifecycle_rules() == ()
+
+
+def test_lifecycle_rules_are_round_tripped() -> None:
+    client = FakeS3Client()
+    rule = {"ID": "ours", "Status": "Enabled", "Filter": {"Prefix": "a/b/"}}
+    make_adapter(client).put_lifecycle_rules([rule])
+    assert make_adapter(client).lifecycle_rules() == (rule,)
+
+
+def test_an_empty_lifecycle_configuration_is_refused_locally() -> None:
+    """Some providers reject it; one that accepted it would drop every other rule."""
+    client = FakeS3Client()
+    with pytest.raises(storage.InvalidRequestError):
+        make_adapter(client).put_lifecycle_rules([])
+    assert client.rules == []
 
 
 # ---------------------------------------------------------------------------------------

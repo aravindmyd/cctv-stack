@@ -28,7 +28,7 @@ from __future__ import annotations
 import base64
 import binascii
 import time
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, ClassVar, Protocol, runtime_checkable
@@ -38,6 +38,7 @@ __all__ = [
     "DEFAULT_MULTIPART_THRESHOLD_BYTES",
     "AdapterHealth",
     "AuthStorageError",
+    "BucketAdmin",
     "BucketNotFoundError",
     "ChecksumMismatchError",
     "DeleteResult",
@@ -253,6 +254,36 @@ class StorageAdapter(Protocol):
     def healthcheck(self) -> AdapterHealth: ...
 
 
+@runtime_checkable
+class BucketAdmin(Protocol):
+    """Bucket-level configuration: existence, versioning, lifecycle rules.
+
+    Separate from `StorageAdapter` on purpose. The uploader must not be able to rewrite a
+    lifecycle rule, and a test double for the uploader should not have to implement bucket
+    administration. Provisioning (lld/07 §7) is the only caller.
+
+    Rules are passed and returned as plain dicts in S3's own shape, because that is the
+    interchange format both B2 and the lifecycle console speak; wrapping it in our own model
+    would mean translating twice and losing the fields we did not think of.
+    """
+
+    def ensure_bucket(self) -> str:
+        """Create the bucket if it is absent. Returns `"created"` or `"existing"`."""
+        ...
+
+    def versioning(self) -> str:
+        """`"Enabled"`, `"Suspended"` or `"Unversioned"`."""
+        ...
+
+    def set_versioning(self, *, enabled: bool) -> None: ...
+
+    def lifecycle_rules(self) -> tuple[Mapping[str, Any], ...]: ...
+
+    def put_lifecycle_rules(self, rules: Sequence[Mapping[str, Any]]) -> None: ...
+
+    def healthcheck(self) -> AdapterHealth: ...
+
+
 # ---------------------------------------------------------------------------------------
 # Classification — the code that decides retry, backoff and alarm
 # ---------------------------------------------------------------------------------------
@@ -464,17 +495,11 @@ class S3StorageAdapter:
 
     # -- operations --------------------------------------------------------------------
 
-    def ensure_bucket(self, *, configure_lifecycle: Any | None = None) -> None:
-        """Create the bucket if it is absent. Lifecycle rules are left to `install.sh`.
-
-        Lifecycle configuration is the one genuinely provider-specific feature, so its
-        absence degrades to "no provider backstop" with a warning rather than a failure
-        (cloud-object-layout §6.1) — which also means an S3-compatible test double needs nothing
-        special.
-        """
+    def ensure_bucket(self) -> str:
+        """Create the bucket if it is absent, and say which of the two happened."""
         try:
             self.client.head_bucket(Bucket=self._bucket)
-            return
+            return "existing"
         except StorageError:
             raise
         except Exception as exc:
@@ -487,6 +512,73 @@ class S3StorageAdapter:
             raise
         except Exception as exc:
             raise classify_client_error(exc) from exc
+        return "created"
+
+    # -- bucket administration (lld/07 §7) ---------------------------------------------
+
+    def versioning(self) -> str:
+        """`Enabled`, `Suspended` or `Unversioned`. Unreadable is unversioned, never "on"."""
+        try:
+            response = self.client.get_bucket_versioning(Bucket=self._bucket)
+        except StorageError:
+            raise
+        except Exception as exc:
+            raise classify_client_error(exc) from exc
+        return str(response.get("Status") or "Unversioned")
+
+    def set_versioning(self, *, enabled: bool) -> None:
+        try:
+            self.client.put_bucket_versioning(
+                Bucket=self._bucket,
+                VersioningConfiguration={"Status": "Enabled" if enabled else "Suspended"},
+            )
+        except StorageError:
+            raise
+        except Exception as exc:
+            raise classify_client_error(exc) from exc
+
+    def lifecycle_rules(self) -> tuple[Mapping[str, Any], ...]:
+        """Existing rules, or none. `NoSuchLifecycleConfiguration` is an answer, not an error."""
+        try:
+            response = self.client.get_bucket_lifecycle_configuration(Bucket=self._bucket)
+        except StorageError:
+            raise
+        except Exception as exc:
+            # A bucket with no rules answers with an error code, and that is the normal state
+            # of a fresh bucket. Read the code from the provider's response rather than from
+            # the message, which is the provider's to reword.
+            provider = getattr(exc, "response", None)
+            code = ""
+            if isinstance(provider, Mapping):
+                error = provider.get("Error")
+                if isinstance(error, Mapping):
+                    code = str(error.get("Code") or "")
+            if code.startswith("NoSuchLifecycle"):
+                return ()
+            raise classify_client_error(exc) from exc
+        return tuple(dict(rule) for rule in (response.get("Rules") or ()))
+
+    def put_lifecycle_rules(self, rules: Sequence[Mapping[str, Any]]) -> None:
+        self._require_rules(rules)
+        try:
+            self.client.put_bucket_lifecycle_configuration(
+                Bucket=self._bucket,
+                LifecycleConfiguration={"Rules": [dict(rule) for rule in rules]},
+            )
+        except StorageError:
+            raise
+        except Exception as exc:
+            raise classify_client_error(exc) from exc
+
+    @staticmethod
+    def _require_rules(rules: Sequence[Mapping[str, Any]]) -> None:
+        """Refuse an empty configuration with a sentence, not a provider error code."""
+        if not rules:
+            raise InvalidRequestError(
+                "Refusing to write an empty lifecycle configuration: some providers reject it "
+                "outright, and one that accepted it would remove every rule this call did "
+                "not name."
+            )
 
     def put_object(
         self,

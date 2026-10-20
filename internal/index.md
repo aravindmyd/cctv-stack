@@ -32,7 +32,7 @@ documents.
 
 **What is built** (`src/cctv/`, entry points `cctv-clip-worker`, `cctv-config`,
 `cctv-uploader`, `cctv-cleanup`, `cctv-status`, `cctv-host`, `cctv-backup`, `cctv-doctor`,
-`cctv-migrate`, `cctv-init`): a review becomes a
+`cctv-migrate`, `cctv-init`, `cctv-provision`): a review becomes a
 file at the canonical path, the uploader pushes it to Backblaze B2 exactly once through a
 storage adapter, local retention deletes a clip only after its upload is terminal-success, the
 status collector aggregates all of it into `/status` (JSON and HTML) on 8084 and drives

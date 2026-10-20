@@ -220,6 +220,59 @@ services:
       - ./config:/config:ro
       - ${CCTV_DATA_DIR:-./data}:/data
 
+  # One-shot operator commands (backup, restore). Kept out of `up` by a profile: nothing here
+  # is long-running, and an accidental `up` must not start a backup at an arbitrary moment.
+  backup:
+    <<: *cctv-image
+    profiles: ["ops"]
+    restart: "no"
+    command: ["cctv-backup", "create"]
+    env_file: [.env]
+    environment:
+      CCTV_CONFIG_DIR: /config
+      CCTV_DATA_DIR: /data
+      CCTV_DB: /data/cctv.db
+      CCTV_BACKUP_DIR: /data/backups
+      CCTV_ENV_FILE: /site/.env
+    volumes:
+      - ./config:/config:ro
+      - ${CCTV_DATA_DIR:-./data}:/data
+      - ./.env:/site/.env:ro
+
+  # Brings the schema up to date between stopping the old workers and starting the new
+  # containers (lld/09 §4.2). `update.sh` runs this with the *new* image, so the new code
+  # performs the migration rather than the old code racing it.
+  migrate:
+    <<: *cctv-image
+    profiles: ["ops"]
+    restart: "no"
+    command: ["cctv-migrate"]
+    env_file: [.env]
+    environment:
+      CCTV_DATA_DIR: /data
+      CCTV_DB: /data/cctv.db
+    volumes:
+      - ${CCTV_DATA_DIR:-./data}:/data
+
+  # Read-only diagnosis (lld/07 §10). Not started with the stack: `./scripts/doctor.sh`
+  # runs it on demand. It reaches its siblings over the compose network, so it needs no
+  # Docker socket and no privileges on the host.
+  doctor:
+    <<: *cctv-image
+    profiles: ["ops"]
+    restart: "no"
+    command: ["cctv-doctor"]
+    env_file: [.env]
+    environment:
+      CCTV_CONFIG_DIR: /config
+      CCTV_DATA_DIR: /data
+      CCTV_DB: /data/cctv.db
+      CCTV_ENV_FILE: /site/.env
+    volumes:
+      - ./config:/config:ro
+      - ${CCTV_DATA_DIR:-./data}:/data
+      - ./.env:/site/.env:ro
+
 volumes:
   # Gatus's own history. A named volume rather than a host directory because Docker creates a
   # missing bind-mount source as root, which is the ownership trap a fresh install fell into.

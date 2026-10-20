@@ -1,5 +1,11 @@
 # LLD 08 — backup and restore
 
+> **Implementation status (2026-10-20).** §2.1 (encrypted config bundle), §2.2 (online database
+> backup, reopened and checked), §2.3 (manifest CSV), §4.1 (`backup.sh` sequence) and §5
+> (`--verify`, including staleness) are built in `src/cctv/backup.py`, with `./backup.sh` and
+> `./restore.sh` running it in the image. §2.4 (clips tarball), cloud offsite copy (§4.2),
+> scheduling (§4.3), restore drill (§5.1) and scenarios B/C (§6.2–§6.3) are **not built**.
+
 **Implements:** PRD §14, [INV-4](../invariants.md), [INV-8](../invariants.md)
 
 Answering the question the PRD asks in §14: what must survive, what need not, and how

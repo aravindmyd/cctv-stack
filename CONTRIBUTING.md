@@ -60,6 +60,8 @@ src/cctv/                 shared library and five services
   monitoring.py           monitoring adapter: Gatus config, monitor inventory, heartbeats
   host.py                 host detection, support matrix, shm sizing
   host_cli.py             cctv-host
+  backup.py               cctv-backup: encrypted config bundle, state backup, verification
+  doctor.py               cctv-doctor: read-only diagnosis of the whole installation
   config_cli.py           cctv-config
   materialise.py          review → canonical clip
   db.py                   SQLite state machine and migrations

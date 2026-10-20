@@ -193,13 +193,26 @@ published to your LAN: Frigate treats requests on that port as anonymous admin.
 
 ## Upgrading
 
-Compose:
-
 ```bash
-# change CCTV_IMAGE in .env, then
-docker compose pull
-docker compose up -d
+./update.sh --to ghcr.io/jothikaraja/cctv-stack:0.6.0
+./update.sh --rollback     # the previous image, and the pre-upgrade database
+./update.sh --dry-run      # print the plan, change nothing
 ```
+
+`update.sh` runs the whole sequence in a fixed order, and the order is the safety:
+
+1. **Back up first.** The state database is written to `data/backups/` and copied to
+   `data/db-backups/pre-upgrade-<timestamp>.db`. If that fails, nothing else happens.
+2. Point `.env` at the new image, keeping the old one as `CCTV_IMAGE_PREVIOUS`, and save the
+   old `.env` as `.env.pre-upgrade-<timestamp>`.
+3. Pull the new image.
+4. Stop `clip-worker`, `uploader` and `cleanup` — the producer and the destroyer — then run the
+   migrations with the **new** code.
+5. Start everything and verify with `cctv-doctor`.
+
+Frigate and the broker keep running the whole time, so recording continuity is never
+interrupted. A failed migration stops and prints the rollback command; it does not roll back by
+itself, because that decision is yours.
 
 !!! warning "Upgrading from 0.3.x"
     `0.5.x` adds three services — `status` (the aggregate page), `gatus` and `ntfy` — so the
@@ -222,22 +235,33 @@ pip:
 python -m pip install --upgrade "cctv-stack==0.5.1"
 ```
 
-Database migrations run automatically when a service starts. They are forward-only:
-downgrading the image after a schema migration is not supported, so keep the previous
-`CCTV_IMAGE` value if you may need to roll back.
+Database migrations run automatically when a service starts, and `update.sh` runs them
+between stopping the old workers and starting the new containers. They are forward-only:
+rolling back the image after a schema migration needs the pre-upgrade database, which is why
+`update.sh` always writes one. `./update.sh --rollback` restores it and repins the previous
+image in one step.
 
 ## Removing the stack
 
 ```bash
-docker compose down
+./uninstall.sh            # stop and remove containers; keep data and config
+./uninstall.sh --images   # also remove the images this stack used
+./uninstall.sh --purge    # also remove config/ and the data directory
+./uninstall.sh --dry-run  # print what would happen, change nothing
 ```
 
-Containers stop and are removed. `data/`, `config/`, and `.env` are left in place, so
-starting the stack again resumes where it left off.
+Nothing is deleted unless you ask for it. `data/`, `config/` and `.env` survive a plain
+uninstall, so starting the stack again resumes where it left off.
 
-To remove everything, delete those three paths and decide what happens to the B2 bucket
-separately. If you leave a bucket behind, set a lifecycle rule or delete it; a bucket that
-no longer belongs to a running site is easy to forget and keeps billing.
+`--purge` asks you to **type the location name** (`CCTV_SITE`, for example `parents-home`)
+before it removes anything. A `--yes` flag is too easy to paste from a forum answer.
+
+What a purge still does not do: delete a single object from Backblaze B2. The bucket is not
+this script's business, and forgetting a bucket with no lifecycle rule attached is how a site
+keeps billing after it is gone. Empty it, or set a lifecycle rule, on purpose.
+
+If something is wrong but you are not ready to remove the stack, run `./scripts/doctor.sh`
+instead — it diagnoses without changing anything. See [Diagnose problems](doctor.md).
 
 ## Troubleshooting the first start
 

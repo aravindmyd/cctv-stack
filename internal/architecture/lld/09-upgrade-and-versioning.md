@@ -119,6 +119,16 @@ understanding that makes them safe.
 
 ## 4. `update.sh`
 
+> **Implementation status (2026-10-20).** Steps 0–10 are built as `./update.sh --to <image>`
+> with `--rollback` and `--dry-run`, with two deliberate differences from the sequence below.
+> **ACQUIRE** is replaced by `docker pull` of a pinned image, because a site is deployed as a
+> signed bundle and a digest rather than a checkout (ADR-0020); there is no working tree to
+> verify. **GENERATE** is left to the `config` service on start, which already regenerates and
+> refuses an invalid result — the validation it performs is the same one step 4 would ask for.
+> Step 7 runs through a new `cctv-migrate` entry point, so the new image migrates before the
+> new containers start. 13 tests assert the *order*: backup before `.env` changes, workers
+> stopped before the migration, verification last.
+
 ### 4.1 Sequence
 
 ```text

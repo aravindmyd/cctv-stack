@@ -76,6 +76,7 @@ cctv-uploader = "cctv.uploader:main"
 cctv-cleanup = "cctv.cleanup:main"
 cctv-status = "cctv.status_service:main"
 cctv-host = "cctv.host_cli:main"
+cctv-backup = "cctv.backup:main"
 
 [project.urls]
 Homepage = "https://github.com/aravindmyd/cctv-stack"

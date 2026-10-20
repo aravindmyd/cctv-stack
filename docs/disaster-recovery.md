@@ -4,7 +4,39 @@ The stack keeps its state in three places: the configuration files, the SQLite d
 the clips on disk. Knowing which of them you can rebuild — and which you cannot — decides
 how much work a failure costs.
 
-There is no backup script yet. This page gives the commands to run yourself.
+There is no `restore.sh` yet for anything beyond configuration and the database, and no
+reconstruction from the cloud listing. This page gives the commands to run yourself, and
+says exactly what they cover.
+
+## Backing up
+
+Set a passphrase once in `.env` (generate it with `openssl rand -base64 32`), then:
+
+```bash
+./backup.sh            # writes data/backups/config-*.tar.gz.enc, state-*.db, *.manifest.csv
+./backup.sh --verify   # re-reads the checksums, reopens the database, compares row counts
+```
+
+The configuration bundle is **encrypted by default**, because it contains `.env` and
+`cameras.yml` — your RTSP password and B2 key. Every artefact is created `0600`.
+
+`--verify` is the part that matters: it proves the backup opens, its checksum still matches,
+and the clip count has not drifted from the live database. A backup that has silently stopped
+being taken is reported as stale rather than passing.
+
+Restoring:
+
+```bash
+./restore.sh            # list what is available
+./restore.sh state      # newest state database; asks first
+./restore.sh config     # newest configuration bundle; asks first
+```
+
+The file being replaced is kept alongside as `*.pre-restore`, and an existing database is
+never overwritten without confirmation.
+
+What this does **not** do: restore clips (they are in B2), or rebuild `state.db` from the
+bucket when there is no backup at all. Both are documented as outstanding work.
 
 ## What survives what
 

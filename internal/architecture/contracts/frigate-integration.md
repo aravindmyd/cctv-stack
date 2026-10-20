@@ -647,14 +647,16 @@ generated default must keep this window comfortably large:
 
 | Setting | Default | Rationale |
 |---|---|---|
-| `record.continuous.days` | `0` (disabled) | Continuous retention is ~2 orders of magnitude more expensive than clip retention |
-| `record.motion.days` | `3` | Gives the clip-worker a 72-hour recovery window |
-| `record.alerts.retain.days` | `90` local policy reflected where Frigate supports it | Keeps alert footage available to Frigate's UI |
+| `record.continuous.days` | `2` | Bounded 24/7 footage so an incident with no motion still has video ([ADR-0022](../../adr/0022-continuous-recording-for-two-days.md)). Local only: it is never uploaded |
+| `record.motion.days` | `7` | Keeps footage attached to activity five days longer than the 24/7 churn, and gives the clip-worker a week's recovery window |
+| `record.alerts.retain.days` | `30` | Keeps alert footage available to Frigate's UI |
 | `record.detections.retain.days` | `14` | Bounded |
 
-**Validation rule:** `record.motion.days` below `min_headroom_days` (default 2)
-produces a hard validation warning, because the clip-worker's backlog could then
-outlive its source. See §6 of this document and [INV-9](../invariants.md).
+**Validation rule:** the shortest non-zero window in the generated block must be at least
+`min_headroom_days` (default 2), because the clip-worker's backlog could otherwise outlive
+its source. With the default two-day continuous window that is satisfied *exactly* — raising
+`min_headroom_days` without raising `continuous.days` is refused at generation time. See §6
+of this document and [INV-9](../invariants.md).
 
 ### 5.3 Clip JSON sidecar
 

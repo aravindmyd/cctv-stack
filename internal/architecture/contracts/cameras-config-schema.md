@@ -213,18 +213,30 @@ retention. The generator translates our intent like this:
 | Our mode | Generated `record:` |
 |---|---|
 | `off` | `record.enabled: false` |
-| `continuous` | `continuous.days: 7`, `motion.days: 7`, alerts/detections retain 30 |
-| `motion` **(default)** | `continuous.days: 0`, `motion.days: 3`, alerts retain 30, detections retain 14 |
+| `continuous` **(default)** | `continuous.days: 2`, `motion.days: 7`, alerts retain 30, detections retain 14 |
+| `motion` | `continuous.days: 0`, `motion.days: 3`, alerts retain 30, detections retain 14 |
 | `alerts` | `continuous.days: 0`, `alerts.retain.days: 30` |
 | `detections` | `continuous.days: 0`, `detections.retain.days: 30` |
 
-**The `motion` default deliberately keeps a 3-day window.** That window is the
-clip-worker's recovery budget if it is down ([INV-9](../invariants.md)). The
-generator refuses to emit a window shorter than `min_headroom_days` (default 2)
-without an explicit override flag, because a shorter window means a clip-worker
-outage of the same length causes permanent loss.
+**The default is two days of continuous recording** ([ADR-0022](../../adr/0022-continuous-recording-for-two-days.md)).
+It exists because motion-only footage leaves an incident with no motion — a parcel at a gate,
+not a person — with nothing recorded at all. Motion footage is kept seven days on top of it,
+so footage attached to activity outlives the 24/7 churn.
 
-`continuous` mode triggers a capacity warning at generation time (§14 of the HLD).
+**Frigate's recordings are local only.** They live under `data/media/`, are never written to
+the `clips` table, and are therefore never uploaded, listed or backed up: the uploader only
+ever sees rows whose paths sit under `clips/`, and `cleanup` refuses to touch `data/media/`.
+Continuous recording costs disk and nothing else.
+
+**The two-day window is also the clip-worker's recovery budget** ([INV-9](../invariants.md)).
+The generator refuses to emit a window shorter than `min_headroom_days` (default 2) without
+an explicit override flag, because a shorter window means a clip-worker outage of the same
+length causes permanent loss. With the default, `min_headroom_days` is satisfied exactly —
+raising it without raising `continuous.days` is refused, which is the guard working.
+
+At 2 Mbps, continuous retention is ≈21 GB per camera per day, so ≈43 GB per camera for the
+two days. The installer does not yet project this (backlog §A), so it is documented here and
+in `docs/configure.md` instead of being guessed at.
 
 ### 4.2 What the generator produces (abridged)
 
@@ -257,9 +269,9 @@ ffmpeg:
 record:
   enabled: true
   continuous:
-    days: 0
+    days: 2
   motion:
-    days: 3
+    days: 7
   alerts:
     retain:
       days: 30

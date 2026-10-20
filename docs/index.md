@@ -17,6 +17,10 @@ day after the camera is installed:
 - **Retention with a safety rule.** A clip is deleted locally only when its upload has
   finished successfully. If the upload is broken, the clip is held and reported, and the
   disk grows until you fix it.
+- **Two days of continuous footage, locally.** Frigate keeps two days of everything alongside
+  seven days of motion, so an incident that never triggered a detection — a parcel at a gate,
+  a car idling in a corner — still has video. It stays on the host: never uploaded, never
+  billed, expired by Frigate.
 - **One command to install.** `./install.sh` asks four questions — location, timezone,
   cameras, optional B2 — and does the rest: host detection, shared-memory sizing,
   validation, start-up, and waiting for Frigate.

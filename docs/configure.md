@@ -111,15 +111,26 @@ no retry can recover it.
 
 | Mode | Frigate keeps |
 |---|---|
-| `motion` (default) | 3 days of motion footage |
-| `continuous` | 7 days of continuous footage |
+| `continuous` (default) | 2 days of continuous footage, 7 days of motion, plus alert and detection events |
+| `motion` | 3 days of motion footage |
 | `alerts` | Footage around alerts, 30 days |
 | `detections` | Footage around detections, 30 days |
 | `off` | Nothing |
 
+Continuous is the default because motion-only footage leaves an incident that never moved —
+a parcel at a gate, a car idling in a corner — with nothing recorded at all. The window is
+bounded at two days, which is roughly **21 GB per camera per day at 2 Mbps** (about 43 GB per
+camera for the two days). Size the disk for that.
+
+**This footage never leaves the host.** Frigate's recordings are not uploaded, not listed in
+the database, and not part of a backup: the uploader only ever uploads the clips under
+`clips/`, and `cleanup` will not touch `data/media/`. Continuous recording costs disk and
+nothing else — no B2 storage, no B2 egress.
+
 `min_headroom_days` (top level, default `2`) is enforced: a mode that leaves less than two
-days of recording is refused unless you raise the value. The default warning is there
-because a shorter window than your worst outage means permanent loss.
+days of recording is refused unless you raise the value. The default two-day continuous
+window satisfies it exactly, so raising `min_headroom_days` without raising `continuous.days`
+is refused with the reason — the guard working, not a bug.
 
 ### `retention`
 

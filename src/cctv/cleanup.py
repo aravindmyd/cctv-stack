@@ -43,11 +43,11 @@ import sys
 import threading
 from collections.abc import Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from . import db, health, paths, storage, timeutil
+from . import atomic, db, health, paths, storage, timeutil
 from .config import CamerasConfig, ConfigError, load_cameras_config
 from .logging import configure_logging
 from .reconcile import CRITICAL_KINDS, Reconciler, ReconcileRun
@@ -69,6 +69,8 @@ __all__ = [
     "CleanupSettings",
     "CloudRetention",
     "CloudRun",
+    "HousekeepRun",
+    "Housekeeper",
     "LocalRetention",
     "RetentionRun",
     "main",
@@ -129,6 +131,9 @@ LAST_RUN_NAME = "cleanup_local"
 #: The `sweep_state` row recording when J3 last completed.
 RECONCILE_RUN_NAME = "cleanup_reconcile"
 
+#: The `sweep_state` row recording when J4 last completed.
+HOUSEKEEP_RUN_NAME = "cleanup_housekeep"
+
 #: The retention applied when a camera is not in `cameras.yml` — a retired camera. Mirrors
 #: `RetentionConfig`'s default, and is deliberately a copy rather than an import so that
 #: changing the config default cannot silently change what happens to retired footage.
@@ -137,6 +142,31 @@ DEFAULT_RETIRE_GRACE_DAYS = 0
 
 #: The same fallback for the cloud copy. `retention.cloud_days` defaults to 60.
 DEFAULT_CLOUD_DAYS = 60
+
+#: Housekeeping is daily (`lld/05` §6). Emptied directories and a week of health history are not
+#: worth an hourly walk of the tree on a machine whose disks are the scarce resource.
+DEFAULT_HOUSEKEEP_INTERVAL_S = 86400.0
+
+#: Database backups kept by J4's rotation. Bounded rather than emptied, because
+#: `./update.sh --rollback` restores from this directory and a rotation that reached zero would
+#: delete the very artefact the rollback depends on.
+DEFAULT_KEEP_DB_BACKUPS = 10
+
+#: A `.tmp` may belong to a fetch happening right now. This is the belt-and-braces tier *behind*
+#: the worker's own reaper, so it is generous: a day, not minutes.
+TMP_AGE_S = 86400.0
+
+#: `*.bad` files are the evidence of a fetch that produced something unplayable. A week is long
+#: enough for someone to notice and short enough not to accumulate.
+BAD_FILE_AGE_S = 7 * SECONDS_PER_DAY
+
+#: J4's database windows (`lld/05` §6). Each is a different answer to "how long is this worth
+#: keeping?": health history is a ring buffer, upload attempts are debugging, and audit events
+#: are the record someone reads months later.
+HEALTH_HISTORY_DAYS = 7.0
+UPLOAD_ATTEMPT_DAYS = 30.0
+SYSTEM_EVENT_DAYS = 90.0
+PIN_DAYS = 30.0
 
 
 class CleanupPathError(ValueError):
@@ -174,10 +204,23 @@ class CleanupSettings:
     reconcile_interval_s: float = DEFAULT_RECONCILE_INTERVAL_S
     reconcile_max_objects: int = DEFAULT_RECONCILE_MAX_OBJECTS
     cloud_delete_failure_critical: int = DEFAULT_CLOUD_DELETE_FAILURE_CRITICAL
+    #: Housekeeping (J4) is daily by default, and `0` disables it.
+    housekeep_interval_s: float = DEFAULT_HOUSEKEEP_INTERVAL_S
+    keep_db_backups: int = DEFAULT_KEEP_DB_BACKUPS
+    #: Where `./update.sh` writes pre-upgrade copies. `None` means the conventional
+    #: `<data_dir>/db-backups`, resolved by `db_backups_dir` so a caller that does not care
+    #: never has to spell it out.
+    db_backup_dir: Path | None = None
 
     @property
     def clips_dir(self) -> Path:
         return self.data_dir / CLIPS_DIR_NAME
+
+    @property
+    def db_backups_dir(self) -> Path:
+        return (
+            self.db_backup_dir if self.db_backup_dir is not None else self.data_dir / "db-backups"
+        )
 
     def configuration_problem(self) -> str | None:
         if self.run_interval_s <= 0:
@@ -198,6 +241,10 @@ class CleanupSettings:
             return "CCTV_CLEANUP_RECONCILE_INTERVAL_S cannot be negative (0 disables it)."
         if self.reconcile_max_objects < 1:
             return "CCTV_CLEANUP_RECONCILE_MAX_OBJECTS must be at least 1."
+        if self.housekeep_interval_s < 0:
+            return "CCTV_CLEANUP_HOUSEKEEP_INTERVAL_S cannot be negative (0 disables it)."
+        if self.keep_db_backups < 1:
+            return "CCTV_CLEANUP_KEEP_DB_BACKUPS must be at least 1, or rotation has no floor."
         return None
 
     @classmethod
@@ -256,6 +303,13 @@ class CleanupSettings:
             reconcile_max_objects=int(
                 number("CCTV_CLEANUP_RECONCILE_MAX_OBJECTS", DEFAULT_RECONCILE_MAX_OBJECTS)
             ),
+            housekeep_interval_s=number(
+                "CCTV_CLEANUP_HOUSEKEEP_INTERVAL_S", DEFAULT_HOUSEKEEP_INTERVAL_S
+            ),
+            keep_db_backups=int(number("CCTV_CLEANUP_KEEP_DB_BACKUPS", DEFAULT_KEEP_DB_BACKUPS)),
+            db_backup_dir=(
+                Path(env["CCTV_DB_BACKUP_DIR"]) if env.get("CCTV_DB_BACKUP_DIR") else None
+            ),
             log_level=env.get("CCTV_LOG_LEVEL") or None,
         )
 
@@ -309,6 +363,8 @@ class RetentionRun:
     cloud: CloudRun | None = None
     #: The reconciliation pass, when one was due in this cycle.
     reconcile: ReconcileRun | None = None
+    #: The housekeeping pass, when one was due in this cycle.
+    housekeep: HousekeepRun | None = None
 
     @property
     def duration_s(self) -> float:
@@ -557,6 +613,226 @@ class CloudRun:
         return max(0.0, self.finished_at - self.started_at)
 
 
+@dataclass(frozen=True, slots=True)
+class HousekeepRun:
+    """What one J4 pass did, or would have done under `DRY_RUN`.
+
+    Every count is separate rather than one total, because the numbers answer different
+    questions: a climbing `empty_dirs_removed` is normal, a climbing `tmp_files_removed` means
+    fetches are dying mid-write, and `rows_pruned` is the only signal that the database is being
+    kept bounded.
+    """
+
+    empty_dirs_removed: int = 0
+    bad_files_removed: int = 0
+    tmp_files_removed: int = 0
+    db_backups_removed: int = 0
+    rows_pruned: Mapping[str, int] = field(default_factory=dict)
+    bytes_freed: int = 0
+    refused: int = 0
+    dry_run: bool = False
+    started_at: Instant = 0.0
+    finished_at: Instant = 0.0
+
+    @property
+    def duration_s(self) -> float:
+        return max(0.0, self.finished_at - self.started_at)
+
+    @property
+    def total_rows(self) -> int:
+        return sum(self.rows_pruned.values())
+
+    def summary(self) -> str:
+        parts = [
+            f"{self.empty_dirs_removed} empty dirs",
+            f"{self.tmp_files_removed} stale tmp",
+        ]
+        if self.bad_files_removed:
+            parts.append(f"{self.bad_files_removed} .bad files")
+        if self.db_backups_removed:
+            parts.append(f"{self.db_backups_removed} old db backups")
+        if self.rows_pruned:
+            rows = ", ".join(
+                f"{table}={count}" for table, count in sorted(self.rows_pruned.items())
+            )
+            parts.append(f"rows pruned: {rows}")
+        return "; ".join(parts)
+
+
+class Housekeeper:
+    """J4: keep the filesystem tidy and the database bounded (`lld/05` §6).
+
+    The rules were chosen so that nothing here can lose a clip, which is why the list is short
+    and full of age gates:
+
+    * **Never touched**: anything under `media/` or `frigate/`, and any `.mp4` or `.json` under
+      `clips/`. A clip's file and its sidecar are retention's business, not housekeeping's.
+    * **Age-gated**: a `.tmp` may belong to a fetch happening right now, so it has to be old
+      before it is stale. `*.bad` files are diagnostic evidence and keep their value for a week.
+    * **Bounded, not emptied**: the newest N database backups survive, so rotation can never
+      leave zero.
+
+    It runs on its own daily cadence rather than with J1's hourly one: emptying a directory or
+    prunning a week of health history is not worth an hourly walk of the tree on a machine whose
+    disks are the scarce resource.
+    """
+
+    def __init__(
+        self,
+        *,
+        settings: CleanupSettings,
+        logger: Any | None = None,
+        clock: Any = timeutil.now,
+    ) -> None:
+        self._settings = settings
+        self._clock = clock
+        self._logger = logger
+
+    def run_once(self, conn: Any) -> HousekeepRun:
+        started = self._clock()
+        dry_run = self._settings.dry_run
+        rows: dict[str, int] = {}
+
+        def prune(name: str, function: Any, *, days: float) -> None:
+            count = 0 if dry_run else function(conn, before=started - days * SECONDS_PER_DAY)
+            if count:
+                rows[name] = count
+
+        prune("health_history", db.prune_health_history, days=HEALTH_HISTORY_DAYS)
+        prune("upload_attempts", db.prune_upload_attempts, days=UPLOAD_ATTEMPT_DAYS)
+        prune("system_events", db.prune_system_events, days=SYSTEM_EVENT_DAYS)
+        prune("pinned_events", db.prune_settled_pins, days=PIN_DAYS)
+
+        bad, bad_bytes = self._remove_files(
+            suffix=".bad", min_age_s=BAD_FILE_AGE_S, now=started, dry_run=dry_run
+        )
+        tmp, tmp_bytes = self._reap_tmp(now=started, dry_run=dry_run)
+        dirs = self._remove_empty_dirs(dry_run=dry_run)
+        backups, backup_bytes = self._rotate_db_backups(dry_run=dry_run)
+
+        return HousekeepRun(
+            empty_dirs_removed=dirs,
+            bad_files_removed=bad,
+            tmp_files_removed=tmp,
+            db_backups_removed=backups,
+            rows_pruned=rows,
+            bytes_freed=bad_bytes + tmp_bytes + backup_bytes,
+            dry_run=dry_run,
+            started_at=started,
+            finished_at=self._clock(),
+        )
+
+    # -- the filesystem ------------------------------------------------------------------
+
+    def _reap_tmp(self, *, now: Instant, dry_run: bool) -> tuple[int, int]:
+        """Stale scratch files under `clips/`. Belt-and-braces with the worker's own reaper."""
+        clips_dir = self._settings.clips_dir
+        if not clips_dir.is_dir():
+            return 0, 0
+        if dry_run:
+            # Counting without deleting, so a rehearsal reports the same shape as a real run.
+            stale = [
+                path
+                for path in clips_dir.rglob(f"*{atomic.TMP_MARKER}-*")
+                if path.is_file() and (now - path.stat().st_mtime) >= TMP_AGE_S
+            ]
+            return len(stale), sum(_size_of(path) for path in stale)
+        removed = atomic.reap_tmp(clips_dir, max_age_s=TMP_AGE_S, now=now)
+        return len(removed), 0
+
+    def _remove_files(
+        self, *, suffix: str, min_age_s: float, now: Instant, dry_run: bool
+    ) -> tuple[int, int]:
+        """Delete old files with this suffix under `clips/`, and report the bytes.
+
+        Only ever used for `*.bad`. A `.mp4` and a `.json` are deliberately not expressible
+        here: the function takes a suffix it was called with, and the two callers that matter
+        pass nothing a clip could be named.
+        """
+        clips_dir = self._settings.clips_dir
+        if not clips_dir.is_dir() or suffix in {".mp4", ".json"}:
+            return 0, 0
+        removed = 0
+        freed = 0
+        for path in clips_dir.rglob(f"*{suffix}"):
+            if not path.is_file():
+                continue
+            try:
+                if (now - path.stat().st_mtime) < min_age_s:
+                    continue
+            except OSError:
+                continue
+            size = _size_of(path)
+            if dry_run:
+                removed += 1
+                freed += size
+                continue
+            if atomic.discard(path):
+                removed += 1
+                freed += size
+        return removed, freed
+
+    def _remove_empty_dirs(self, *, dry_run: bool) -> int:
+        """`clips/<camera>/YYYY/MM/DD/` and upward, deepest first.
+
+        Deepest first, so a day directory that empties its month does not need a second pass to
+        take the month with it. `clips/` itself is never a candidate: it is the mount point for
+        a volume, and removing it would turn a tidy-up into an outage.
+        """
+        clips_dir = self._settings.clips_dir
+        if not clips_dir.is_dir():
+            return 0
+        directories = sorted(
+            (path for path in clips_dir.rglob("*") if path.is_dir()),
+            key=lambda path: len(path.parts),
+            reverse=True,
+        )
+        removed = 0
+        for directory in directories:
+            try:
+                if any(directory.iterdir()):
+                    continue
+            except OSError:
+                continue
+            if dry_run:
+                removed += 1
+                continue
+            try:
+                directory.rmdir()
+            except OSError:
+                # Something appeared between the check and the call. Not an error.
+                continue
+            removed += 1
+        return removed
+
+    def _rotate_db_backups(self, *, dry_run: bool) -> tuple[int, int]:
+        """Keep the newest `keep_db_backups` files in `db-backups/`.
+
+        Bounded rather than emptied: a rotation that could reach zero would delete the very
+        artefact `./update.sh --rollback` depends on.
+        """
+        directory = self._settings.db_backups_dir
+        keep = max(1, self._settings.keep_db_backups)
+        if not directory.is_dir():
+            return 0, 0
+        backups = sorted(
+            (path for path in directory.glob("*.db") if path.is_file()),
+            key=lambda path: path.stat().st_mtime,
+            reverse=True,
+        )
+        expired = backups[keep:]
+        if dry_run:
+            return len(expired), sum(_size_of(path) for path in expired)
+        removed = 0
+        freed = 0
+        for path in expired:
+            size = _size_of(path)
+            if atomic.discard(path):
+                removed += 1
+                freed += size
+        return removed, freed
+
+
 class CloudRetention:
     """J2: delete cloud objects past `cloud_days`, and only when the provider confirms it.
 
@@ -754,6 +1030,14 @@ class _Counters:
         self.refused = 0
         self.bytes_freed = 0
         self.dry_run_deleted = 0
+
+
+def _size_of(path: Path) -> int:
+    """A file's size, or 0 if it vanished. Only used for reporting bytes freed."""
+    try:
+        return path.stat().st_size
+    except OSError:
+        return 0
 
 
 def _unlink(path: Path) -> None:
@@ -1174,6 +1458,7 @@ class CleanupService:
             logger=logger,
             clock=clock,
         )
+        self._housekeeper = Housekeeper(settings=settings, logger=logger, clock=clock)
 
     @property
     def cloud(self) -> CloudRetention:
@@ -1206,6 +1491,22 @@ class CleanupService:
                         note=reconcile_run.summary()[:200],
                         now=self._clock(),
                     )
+            if self._due(
+                conn,
+                HOUSEKEEP_RUN_NAME,
+                self._settings.housekeep_interval_s,
+                now=run.finished_at,
+            ):
+                housekeep_run = self._housekeeper.run_once(conn)
+                run = replace(run, housekeep=housekeep_run)
+                if not self._settings.dry_run:
+                    db.set_watermark(
+                        conn,
+                        name=HOUSEKEEP_RUN_NAME,
+                        watermark=housekeep_run.finished_at,
+                        note=housekeep_run.summary()[:200],
+                        now=self._clock(),
+                    )
         except Exception as exc:
             # Recorded, then re-raised: the caller decides whether to keep going, and the
             # staleness check must see that a pass *failed* rather than never happened.
@@ -1234,15 +1535,19 @@ class CleanupService:
         return run
 
     def _reconcile_due(self, conn: Any, *, now: Instant) -> bool:
-        """Daily by default (`lld/05` §5), and the watermark is the record of when it last ran.
+        """Daily by default (`lld/05` §5)."""
+        return self._due(conn, RECONCILE_RUN_NAME, self._settings.reconcile_interval_s, now=now)
 
-        `0` disables reconciliation entirely. Anything else: due when there is no watermark, or
-        when the last successful one is older than the interval.
+    def _due(self, conn: Any, name: str, interval: float, *, now: Instant) -> bool:
+        """Whether a job with this watermark and cadence should run now.
+
+        `0` disables the job entirely. Anything else: due when there is no watermark, or when the
+        last *successful* one is older than the interval — which is why a failed pass leaves the
+        watermark alone rather than resetting the clock.
         """
-        interval = self._settings.reconcile_interval_s
         if interval <= 0:
             return False
-        row = db.get_watermark(conn, RECONCILE_RUN_NAME)
+        row = db.get_watermark(conn, name)
         if row is None or row["last_success_at"] is None:
             return True
         return (now - float(row["last_success_at"])) >= interval
@@ -1292,6 +1597,15 @@ class CleanupService:
                 ),
             },
         )
+        if run.housekeep is not None:
+            logger.info(
+                "housekeeping pass",
+                extra={
+                    "count": run.housekeep.total_rows,
+                    "duration_s": round(run.housekeep.duration_s, 3),
+                    "state": run.housekeep.summary(),
+                },
+            )
 
 
 def _human(seconds: float) -> str:

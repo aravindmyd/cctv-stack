@@ -64,6 +64,11 @@ __all__ = [
     "open_db",
     "open_findings",
     "overdue_local",
+    "prune_disk_samples",
+    "prune_health_history",
+    "prune_settled_pins",
+    "prune_system_events",
+    "prune_upload_attempts",
     "queue_summary",
     "record_event",
     "record_finding",
@@ -1822,6 +1827,75 @@ def prune_disk_samples(conn: sqlite3.Connection, *, before: Instant) -> int:
     """Delete samples older than `before`. Returns how many rows went."""
     with write_txn(conn):
         cur = conn.execute("DELETE FROM disk_samples WHERE at < ?", (before,))
+    return int(cur.rowcount or 0)
+
+
+def prune_health_history(conn: sqlite3.Connection, *, before: Instant) -> int:
+    """Delete health observations older than `before`. Returns how many rows went.
+
+    Pruned by J4 (`lld/05` §6). A health history is a ring buffer for "has this been flapping
+    for the last few days?", not a log, and nothing reads a row from last week.
+    """
+    with write_txn(conn):
+        cur = conn.execute("DELETE FROM health_history WHERE observed_at < ?", (before,))
+    return int(cur.rowcount or 0)
+
+
+def prune_system_events(conn: sqlite3.Connection, *, before: Instant) -> int:
+    """Delete audit events older than `before`. Returns how many rows went.
+
+    The longest of the J4 windows (90 days by default), because `system_events` is where the
+    record of a clip going permanently bad lives: someone asking "what happened in March?" needs
+    March to still be there in June.
+    """
+    with write_txn(conn):
+        cur = conn.execute("DELETE FROM system_events WHERE at < ?", (before,))
+    return int(cur.rowcount or 0)
+
+
+def prune_upload_attempts(conn: sqlite3.Connection, *, before: Instant) -> int:
+    """Delete upload attempts older than `before` for clips that are no longer in flight.
+
+    **Attempts belonging to a clip in `HELD_STATES` are kept regardless of age**, and that is
+    the whole rule: those are the clips still being retried or stuck permanently, and the
+    history of *why* an upload fails is the only evidence an operator has. Every other clip has
+    either succeeded or is gone, so its attempts are debugging archaeology past 30 days.
+
+    Note this is not "terminal states only". `FAILED_PERMANENT` is held rather than terminal
+    precisely because its file stays on disk until a human decides, and forgetting the attempts
+    that explain it would leave the decision uninformed. Returns how many rows went.
+    """
+    placeholders = ",".join("?" * len(HELD_STATES))
+    with write_txn(conn):
+        cur = conn.execute(
+            f"""
+            DELETE FROM upload_attempts
+             WHERE started_at < ?
+               AND clip_id NOT IN (
+                   SELECT id FROM clips WHERE upload_state IN ({placeholders})
+               )
+            """,
+            (before, *HELD_STATES),
+        )
+    return int(cur.rowcount or 0)
+
+
+def prune_settled_pins(conn: sqlite3.Connection, *, before: Instant) -> int:
+    """Delete released and expired pins settled before `before`. Returns how many rows went.
+
+    A `held` pin is never pruned here: it is the record of a Frigate event we are keeping alive
+    so the source footage survives until our clip is durable
+    ([INV-9](../../../internal/architecture/invariants.md)). Only the settled ones are history.
+    """
+    with write_txn(conn):
+        cur = conn.execute(
+            """
+            DELETE FROM pinned_events
+             WHERE state IN ('released', 'expired')
+               AND COALESCE(unpinned_at, pinned_at) < ?
+            """,
+            (before,),
+        )
     return int(cur.rowcount or 0)
 
 

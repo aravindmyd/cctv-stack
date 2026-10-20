@@ -1,6 +1,6 @@
 # LLD 05 — cleanup
 
-> **Implementation status (2026-10-20).** **J1 and J2 are built.** J1 is `LocalRetention`;
+> **Implementation status (2026-10-21).** **J1, J2, J3 and J4 are built.** J1 is `LocalRetention`;
 > J2 is `CloudRetention`, run in the same cycle immediately after J1 (`§8`) and gated on a
 > configured bucket — with none it reports `DISABLED`, not "clean". A cloud deletion is only
 > recorded once a read-back confirms the object is gone; a hide marker or an error keeps the row
@@ -8,8 +8,11 @@
 > as `DEGRADED` then `UNHEALTHY` (`CLOUD_DELETE_FAILING`). The cutoff is `uploaded_at` (§4.3).
 > **ADR-0023** resolved the ordering gap this exposed: `DELETED_LOCAL` and `EXPIRED_CLOUD` now
 > describe *which copy is gone*, each can be followed by the other pass, and `PURGED` is the
-> terminal state when both are. **Not built:** J3 reconciliation, J4 housekeeping, J5's full
-> report, and force-delete (ADR-0021).
+> terminal state when both are. **J3** is `Reconciler` in `src/cctv/reconcile.py`: the six
+> findings of §5.1, capped, de-duplicated while unresolved, and reported through the
+> `reconciliation` health check. **J4** is `Housekeeper`: the filesystem rules and database
+> windows of §6, on their own daily cadence. **Not built:** J5's full report and force-delete
+> (ADR-0021).
 
 **Implements:** [INV-1](../invariants.md), [INV-10](../invariants.md), [INV-13](../invariants.md)
 **Specified by:** [`contracts/database-schema.md`](../contracts/database-schema.md), [`contracts/cloud-object-layout.md`](../contracts/cloud-object-layout.md)
@@ -254,6 +257,21 @@ guess — the desired state has been reached.
 **Never reaped by J4:** anything under `data/media/`, `data/frigate/`, or any `.mp4`
 or `.json` under `data/clips/`.
 
+> **Built (2026-10-21)** as `Housekeeper` in `src/cctv/cleanup.py`, running from the `cleanup`
+> service behind its own watermark and `CCTV_CLEANUP_HOUSEKEEP_INTERVAL_S` (`0` disables it).
+> Three notes on how the table above turned out in code:
+>
+> - **`disk_samples` is not J4's.** The status collector writes one a minute for its growth
+>   projection and prunes to 30 days itself (`lld/06` §4). A second pruner would be two owners
+>   of one window.
+> - **`pinned_events` is pruned defensively.** Nothing writes that table yet — pinning is
+>   recorded on `clips.pinned` — so the rule is there so that whoever implements event pinning
+>   inherits a bounded table rather than a leak.
+> - **"Except non-terminal clips" means `HELD_STATES`** (`PENDING`, `UPLOADING`, `RETRY_WAIT`,
+>   `FAILED_PERMANENT`), not merely the non-terminal ones. `FAILED_PERMANENT` holds its file
+>   until a human decides, and forgetting the attempts that explain the failure would leave that
+>   decision uninformed.
+
 ---
 
 ## 7. J5 — Retention reporting
@@ -285,7 +303,7 @@ your data rather than delete it, and here is exactly what that costs.
 | J1 local | 3600 s | Single-threaded |
 | J2 cloud | 3600 s | Bounded parallelism (4) for deletes |
 | J3 reconciliation | 86400 s | Sequential paginated listing |
-| J4 housekeeping | 86400 s | Single-threaded |
+| J4 housekeeping | 86400 s | Single-threaded, own watermark (`CCTV_CLEANUP_HOUSEKEEP_INTERVAL_S`) |
 | J5 reporting | 3600 s | Runs with J1 |
 
 **Cleanup is single-instance by construction:** only one container runs it, and it
@@ -364,7 +382,7 @@ wrong. The names below are the `CCTV_CLEANUP_*` / `CCTV_HEALTH_*` forms.
 |---|---|---|
 | `run_interval_s` | 3600 | J1/J2/J5 cadence |
 | `reconcile_interval_s` | 86400 | J3 cadence — **not implemented yet** |
-| `housekeeping_interval_s` | 86400 | J4 cadence — **not implemented yet** |
+| `housekeeping_interval_s` | 86400 | J4 cadence (`CCTV_CLEANUP_HOUSEKEEP_INTERVAL_S`), 0 disables |
 | `batch_size` | 200 | Clips per transaction |
 | `delete_concurrency` | 4 | Parallel cloud deletes — J2 |
 | `clips_overdue_warn` / `clips_overdue_critical` | **1 / 10** | J5 thresholds, per §9's behaviour table. §11 previously said `10 / 10`, which contradicts §9 and would have made a single held clip invisible |
@@ -372,7 +390,7 @@ wrong. The names below are the `CCTV_CLEANUP_*` / `CCTV_HEALTH_*` forms.
 | `disk_warn_pct` / `disk_critical_pct` | 15 / 5 | Free-space thresholds, shared with every other service's health surface |
 | `verify_after_delete` | `true` | `HEAD` after `DELETE` — J2 |
 | `delete_failure_critical` | 5 | `cloud_delete_failures` threshold — J2 |
-| `keep_db_backups` | 10 | Rotation — J4 |
+| `keep_db_backups` | 10 | Rotation — J4 (`CCTV_CLEANUP_KEEP_DB_BACKUPS`) |
 | `local_days` / `cloud_days` | 90 / 60 | Defaults; overridable per camera |
 | `retire_grace_days` | 0 | Extra local retention for retired cameras, if an operator wants it |
 

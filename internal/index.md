@@ -36,7 +36,8 @@ documents.
 file at the canonical path, the uploader pushes it to Backblaze B2 exactly once through a
 storage adapter, local and cloud retention delete a copy only after the other one is safe, a
 daily reconciliation pass reports drift between the bucket and the database and repairs
-nothing, the status collector aggregates all of it into `/status` (JSON and HTML) on 8084 and
+nothing, a daily housekeeping pass empties directories that lost their clips and keeps the
+database bounded, the status collector aggregates all of it into `/status` (JSON and HTML) on 8084 and
 drives Gatus/ntfy, the installer detects the host profile and Frigate's shared-memory size,
 `cctv-backup` writes an encrypted config bundle and a verified database backup, `cctv-recover`
 downloads the footage back from the bucket and rebuilds the database when there is no backup,
@@ -44,7 +45,7 @@ and `cctv-doctor` diagnoses an installation read-only. Each service
 exposes `/health` and `/metrics` per
 [`service-contracts.md`](architecture/contracts/service-contracts.md).
 
-**What is not built:** M4's housekeeping (J4); `force-delete` and the cleanup lock, both
+**What is not built:** J5's full retention report; `force-delete` and the cleanup lock, both
 deliberately deferred by [ADR-0021](adr/0021-defer-force-delete-and-advisory-lock.md); a live
 end-to-end alert run (M5.13, manual); the `KumaAdapter` fallback; and, from M6, test
 notifications and signed release bundles. Nothing is deleted while the other copy is still

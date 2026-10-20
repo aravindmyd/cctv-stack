@@ -74,3 +74,20 @@ def test_published_pages_do_not_link_outside_the_published_tree() -> None:
     assert not offenders, "published pages must not link to unpublished docs: " + ", ".join(
         offenders
     )
+
+
+def test_every_line_of_env_example_is_a_comment_blank_or_a_setting() -> None:
+    """`.env.example` is read by humans and copied by `install.sh`, so a bare prose line is a
+    bug: it is either a lost `#` (a comment that became a setting) or a lost setting."""
+    offenders: list[str] = []
+    for number, line in enumerate(
+        (ROOT / ".env.example").read_text(encoding="utf-8").splitlines(), 1
+    ):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", stripped):
+            continue
+        offenders.append(f"line {number}: {stripped}")
+
+    assert not offenders, "not a comment, a blank line or KEY=value:\n" + "\n".join(offenders)

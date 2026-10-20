@@ -24,7 +24,7 @@ design.
 | Upgrade and rollback (`./update.sh`) | ✅ built — backup, migrate, verify |
 | Reconciliation (J3) | ✅ built — reports drift, repairs nothing |
 | Recovery from the bucket (`./restore.sh clips\|rebuild`) | ✅ built — footage back, `state.db` rebuilt |
-| Housekeeping (J4) | ⬜ deferred |
+| Housekeeping (J4) | ✅ built — directories, scratch files, old rows |
 | Test notifications and signed bundles | ⬜ deferred (M6) |
 
 What is deferred, and why, is recorded in

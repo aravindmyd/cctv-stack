@@ -454,3 +454,65 @@ Verify from the log rather than the dashboard: `docker compose logs frigate | gr
 must print `Loading OpenVINO model … on device GPU`, `/api/stats` reports the detector under
 `detectors.ov`, and — the part that actually matters — `process_fps` and `detection_fps` are
 non-zero with a recording segment landing.
+
+#### Using a larger model
+
+The bundled model is `ssdlite_mobilenet_v2` at **300×300** — it is the floor of what works, not a
+good default for accuracy. A camera pointed at hanging laundry will score a bag at ~90 %
+`person`. `frigate.model` replaces it:
+
+```yaml
+frigate:
+  detector: openvino
+  model:
+    path: /config/model_cache/yolov9t320/yolov9t.xml
+    model_type: yolo-generic
+    width: 320
+    height: 320
+    input_tensor: nchw
+    input_dtype: float
+    input_pixel_format: rgb
+    labelmap_path: /labelmap/coco-80.txt
+```
+
+`320x320` is not a compromise forced by weak hardware. Frigate crops the region of motion and
+zooms into it before detection runs, so a 320 model sees *more* pixels per object than a 640
+model sees of the whole frame — at a quarter of the compute. Measured on a UHD 630 with three
+cameras at 5 fps, alongside VAAPI decode and recording: **14 ms** per inference, no skipped
+frames.
+
+Three keys decide whether the model works at all, and all three fail silently:
+
+| Key | Wrong value | What you get |
+| --- | --- | --- |
+| `input_tensor` | omitted, or `nhwc` | Frame arrives NHWC, model expects NCHW — no detections |
+| `input_dtype` | omitted, or `int` | Frigate skips its `/255`; saturated input returns score-`1.00` boxes pinned to the frame edge |
+| `input_pixel_format` | `bgr` | Real objects score lower and spurious labels appear — measured 0.49 vs 0.28 on the same cars, plus invented `suitcase` detections |
+
+With `input_tensor: nchw` and `input_dtype: float`, Frigate does the transpose and the division
+itself — nothing has to be baked into the IR.
+
+Put the OpenVINO IR pair (`*.xml` + `*.bin`) under `config/frigate/model_cache/`; that directory is
+inside Frigate's `/config`, so `/config/model_cache/yolov9t320/yolov9t.xml` on the guest is
+`config/frigate/model_cache/yolov9t320/yolov9t.xml` on the host. Export it once on any machine
+with room to install `ultralytics` and `openvino`:
+
+```bash
+yolo export model=yolov9t.pt format=openvino imgsz=320   # writes yolov9t_openvino_model/
+```
+
+!!! danger "`labelmap_path` is not optional"
+    Supplying `model:` **replaces** Frigate's built-in model configuration; it does not merge
+    with it. With no `labelmap_path`, Frigate falls back to its 80-class map where class 0 is
+    `person`, while the bundled SSD graph is the **91-class** list where class **1** is
+    `person`. Every detection is then named one class early — a person arrives as `bicycle`,
+    `objects.track: [person]` matches nothing, and the site records **nothing at all** while
+    `process_fps`, `detection_fps` and the inference timer all look healthy. That ran silently
+    for two hours on 2026-10-20. The generator now refuses a `model:` block without it.
+
+    The same mistake points the other way for a custom model: `yolov9t` is the **80-class** COCO
+    set, so it needs `/labelmap/coco-80.txt`, and pointing it at Frigate's 91-class map would
+    shift every label in the opposite direction.
+
+`model_type` tells Frigate how to read the output tensor: `ssd` (the bundled model),
+`yolo-generic` (YOLOv8/v9 exports), `yolonas`, `yolox`, `rfdetr`, `dfine`.

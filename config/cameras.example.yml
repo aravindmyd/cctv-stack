@@ -40,6 +40,43 @@ frigate:
     # Frigate's internal port 5000 is never published. Never publish that port.
     enabled: false
 
+  # Which object-detection model runs. Omit this block and Frigate uses the model
+  # bundled in its own image (SSD MobileNet v2, 300x300, 91-class COCO) — fine for a
+  # first boot, but it is the least accurate option available and it is what most
+  # "it thinks a towel is a person" reports turn out to be about.
+  #
+  # The block below is the recommended configuration for any site with an Intel
+  # iGPU. yolov9t is the model Frigate's own docs suggest for the OpenVINO
+  # detector, at the 320x320 resolution they recommend: measured at 14 ms per
+  # inference on a UHD 630 while servicing 3 cameras at 5 fps.
+  #
+  # Put the model here first (one-off; see docs/configure.md):
+  #   config/frigate/model_cache/yolov9t320/yolov9t.xml  (+ .bin)
+  #
+  # Supplying `model:` REPLACES Frigate's built-in model configuration rather than
+  # merging with it, so every key below is load-bearing:
+  #   * `labelmap_path` — wrong here and every detection is named one class early.
+  #     This model is the 80-class COCO set, so `coco-80.txt` (index 0 = person).
+  #     Frigate's fallback `/labelmap.txt` is also 80-class, which is why getting
+  #     this wrong on the *bundled* 91-class model produced detections called
+  #     `bicycle` with no error at all.
+  #   * `input_tensor` + `input_dtype` — Frigate transposes the frame and divides
+  #     by 255 itself when these are set. Omit them and the model is fed uint8
+  #     NHWC: it then returns either nothing, or score-1.00 nonsense boxes pinned
+  #     to the frame edge.
+  #   * `input_pixel_format` — measured on a frame with three known cars: `rgb`
+  #     scores them 0.41–0.49, `bgr` scores the same cars 0.28 and invents
+  #     `suitcase` detections.
+  model:
+    path: /config/model_cache/yolov9t320/yolov9t.xml
+    model_type: yolo-generic
+    width: 320
+    height: 320
+    input_tensor: nchw
+    input_dtype: float
+    input_pixel_format: rgb
+    labelmap_path: /labelmap/coco-80.txt
+
 # Applies to every camera unless the camera overrides it.
 defaults:
   detect:

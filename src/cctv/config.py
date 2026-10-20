@@ -185,6 +185,32 @@ HWACCEL_PRESETS: dict[str, str] = {
 FRIGATE_DETECTORS: frozenset[str] = frozenset({"cpu", "openvino"})
 
 
+#: Keys accepted under `frigate.model`. A closed set: anything Frigate accepts that is not
+#: named here would be dropped without a word, which is the failure mode this project refuses.
+FRIGATE_MODEL_KEYS: frozenset[str] = frozenset(
+    {
+        "path",
+        "labelmap_path",
+        "width",
+        "height",
+        "input_tensor",
+        "input_pixel_format",
+        "input_dtype",
+        "model_type",
+    }
+)
+
+#: Required whenever `frigate.model` is given at all.
+#:
+#: `labelmap_path` is here because supplying `model:` **replaces** Frigate's built-in model
+#: config, and its fallback map is the 80-class `/labelmap.txt` where class 0 is `person`.
+#: The bundled SSD graph is the 91-class list where class 1 is `person`, so a block without
+#: this key names every person `bicycle` — detection runs, fps look healthy, and no event is
+#: ever created. That ran silently for two hours on 2026-10-20; requiring the key makes the
+#: same mistake impossible rather than merely documented.
+FRIGATE_MODEL_REQUIRED: tuple[str, ...] = ("path", "width", "height", "labelmap_path")
+
+
 @dataclass(frozen=True, slots=True)
 class CamerasConfig:
     site: SiteConfig
@@ -201,6 +227,9 @@ class CamerasConfig:
     #: `cpu` or `openvino` (iGPU). Separate from `hwaccel` because they are different hardware
     #: paths with different failure modes: decode can work while the detector has no model.
     frigate_detector: str = "cpu"
+    #: `frigate.model` — the detector's model block, emitted verbatim. `None` means "use the
+    #: model Frigate ships", which is what every install did before this option existed.
+    frigate_model: Mapping[str, Any] | None = None
 
     def hwaccel_args(self) -> str | None:
         """The `hwaccel_args` value to emit, or `None` when acceleration is off."""
@@ -215,7 +244,9 @@ class CamerasConfig:
 # ---------------------------------------------------------------------------------------
 
 _ENV_RE = re.compile(r"\$\{(?P<name>[A-Za-z_][A-Za-z0-9_]*)\}")
-_TOP_LEVEL_KEYS = frozenset({"site", "frigate", "defaults", "cameras", "min_headroom_days"})
+_TOP_LEVEL_KEYS = frozenset(
+    {"site", "frigate", "defaults", "cameras", "min_headroom_days"}
+)
 _CAMERA_KEYS = frozenset(
     {
         "display_name",
@@ -306,6 +337,7 @@ def load_cameras_config(
     frigate_auth = _parse_frigate_auth(frigate_raw)
     frigate_hwaccel = _parse_frigate_hwaccel(frigate_raw)
     frigate_detector = _parse_frigate_detector(frigate_raw)
+    frigate_model = _parse_frigate_model(frigate_raw)
     defaults = data.get("defaults") or {}
     if not isinstance(defaults, Mapping):
         raise ConfigError(f"{source}: `defaults` must be a mapping.")
@@ -323,7 +355,11 @@ def load_cameras_config(
         cameras[name] = _build_camera(name, merged, site, warnings, where)
 
     min_headroom = data.get("min_headroom_days", DEFAULT_MIN_HEADROOM_DAYS)
-    if not isinstance(min_headroom, int) or isinstance(min_headroom, bool) or min_headroom < 1:
+    if (
+        not isinstance(min_headroom, int)
+        or isinstance(min_headroom, bool)
+        or min_headroom < 1
+    ):
         raise ConfigError(f"{source}: `min_headroom_days` must be an integer >= 1.")
 
     return CamerasConfig(
@@ -334,6 +370,7 @@ def load_cameras_config(
         frigate_auth=frigate_auth,
         frigate_hwaccel=frigate_hwaccel,
         frigate_detector=frigate_detector,
+        frigate_model=frigate_model,
     )
 
 
@@ -354,13 +391,17 @@ def _interpolate(value: Any, environ: Mapping[str, str], *, where: str) -> Any:
 
         return _ENV_RE.sub(replace, value)
     if isinstance(value, Mapping):
-        return {k: _interpolate(v, environ, where=f"{where}.{k}") for k, v in value.items()}
+        return {
+            k: _interpolate(v, environ, where=f"{where}.{k}") for k, v in value.items()
+        }
     if isinstance(value, list):
         return [_interpolate(v, environ, where=f"{where}[]") for v in value]
     return value
 
 
-def _check_keys(data: Mapping[str, Any], allowed: frozenset[str], *, where: str) -> None:
+def _check_keys(
+    data: Mapping[str, Any], allowed: frozenset[str], *, where: str
+) -> None:
     unknown = sorted(set(data) - allowed)
     if unknown:
         raise ConfigError(
@@ -409,6 +450,46 @@ def _parse_frigate_detector(data: Any) -> str:
     return word
 
 
+def _parse_frigate_model(data: Any) -> dict[str, Any] | None:
+    """`frigate.model` — a detector model block, emitted verbatim.
+
+    Every required key is demanded up front rather than inherited, because supplying
+    `model:` **replaces** Frigate's built-in model config instead of merging with it. A
+    half-filled block is therefore not "mostly right", it is wrong in ways that look
+    healthy — see `FRIGATE_MODEL_REQUIRED`.
+    """
+    if not isinstance(data, Mapping) or data.get("model") is None:
+        return None
+    model = data["model"]
+    if not isinstance(model, Mapping):
+        raise ConfigError("frigate.model: must be a mapping.")
+    _check_keys(model, FRIGATE_MODEL_KEYS, where="frigate.model")
+
+    missing = [key for key in FRIGATE_MODEL_REQUIRED if key not in model]
+    if isinstance(model.get("path"), str) and model["path"].startswith("plus://"):
+        # Frigate+ models are downloaded and described by Frigate itself: it knows the input
+        # size, tensor layout and label map for a `plus://<model_id>` reference, so demanding
+        # them here would be wrong (and a guessed 300x300 would be worse than useless).
+        missing = [key for key in missing if key == "path"]
+    if missing:
+        raise ConfigError(
+            f"frigate.model: missing {missing}. Supplying `model:` replaces Frigate's "
+            f"built-in model configuration rather than merging with it, so every key it "
+            f"needs must be stated — especially `labelmap_path`, which decides whether "
+            f"class 1 is `person` or `bicycle`."
+        )
+    for key in ("width", "height"):
+        if key not in model:
+            continue
+        value = model[key]
+        if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+            raise ConfigError(f"frigate.model.{key}: must be a positive integer.")
+    for key in sorted(FRIGATE_MODEL_KEYS - {"width", "height"}):
+        if key in model and not isinstance(model[key], str):
+            raise ConfigError(f"frigate.model.{key}: must be a string.")
+    return {str(key): value for key, value in model.items()}
+
+
 def _parse_frigate_auth(data: Any) -> FrigateAuthConfig:
     """`frigate.auth` — whether Frigate's own UI login is on.
 
@@ -419,14 +500,18 @@ def _parse_frigate_auth(data: Any) -> FrigateAuthConfig:
         return FrigateAuthConfig()
     if not isinstance(data, Mapping):
         raise ConfigError("frigate: must be a mapping with an `auth` key.")
-    _check_keys(data, frozenset({"auth", "hwaccel", "detector"}), where="frigate")
+    _check_keys(
+        data, frozenset({"auth", "hwaccel", "detector", "model"}), where="frigate"
+    )
 
     auth = data.get("auth") or {}
     if not isinstance(auth, Mapping):
         raise ConfigError("frigate.auth: must be a mapping with an `enabled` key.")
     _check_keys(auth, frozenset({"enabled"}), where="frigate.auth")
 
-    return FrigateAuthConfig(enabled=_bool(auth.get("enabled", False), "frigate.auth.enabled"))
+    return FrigateAuthConfig(
+        enabled=_bool(auth.get("enabled", False), "frigate.auth.enabled")
+    )
 
 
 def _parse_frigate_hwaccel(data: Any) -> str:
@@ -447,12 +532,16 @@ def _parse_frigate_hwaccel(data: Any) -> str:
     word = value.strip().lower()
     allowed = {"off", *HWACCEL_PRESETS}
     if word not in allowed:
-        raise ConfigError(f"frigate.hwaccel: {value!r} is not one of {', '.join(sorted(allowed))}.")
+        raise ConfigError(
+            f"frigate.hwaccel: {value!r} is not one of {', '.join(sorted(allowed))}."
+        )
     return word
 
 
 def _parse_site(data: Mapping[str, Any], warnings: list[str]) -> SiteConfig:
-    _check_keys(data, frozenset({"location", "timezone", "display_timezone"}), where="site")
+    _check_keys(
+        data, frozenset({"location", "timezone", "display_timezone"}), where="site"
+    )
 
     if "location" not in data:
         raise ConfigError("site.location is required.")
@@ -513,7 +602,9 @@ def _build_camera(
 
     rtsp = data.get("rtsp") or {}
     if not isinstance(rtsp, Mapping):
-        raise ConfigError(f"{where}.rtsp must be a mapping with `main` and optional `sub`.")
+        raise ConfigError(
+            f"{where}.rtsp must be a mapping with `main` and optional `sub`."
+        )
     _check_keys(rtsp, frozenset({"main", "sub"}), where=f"{where}.rtsp")
 
     rtsp_main = rtsp.get("main")
@@ -542,7 +633,9 @@ def _build_camera(
     # model cannot disagree about what an omitted `record:` block means (ADR-0022).
     mode = record_raw.get("mode", RecordConfig().mode)
     if mode not in RECORD_MODES:
-        raise ConfigError(f"{where}.record.mode: {mode!r} is not one of {sorted(RECORD_MODES)}.")
+        raise ConfigError(
+            f"{where}.record.mode: {mode!r} is not one of {sorted(RECORD_MODES)}."
+        )
 
     notify = _build_notify(data.get("notify") or {}, detect, where)
 
@@ -590,7 +683,9 @@ def _build_detect(data: Mapping[str, Any], where: str) -> DetectConfig:
         enabled=enabled,
         objects=objects,
         width=_int(data.get("width", 1280), f"{where}.detect.width", low=64, high=8192),
-        height=_int(data.get("height", 720), f"{where}.detect.height", low=64, high=8192),
+        height=_int(
+            data.get("height", 720), f"{where}.detect.height", low=64, high=8192
+        ),
         fps=_int(data.get("fps", 5), f"{where}.detect.fps", low=1, high=15),
         min_score=_float(
             data.get("min_score", 0.4), f"{where}.detect.min_score", low=0.0, high=1.0
@@ -609,11 +704,15 @@ def _build_clip(
 ) -> ClipConfig:
     _check_keys(
         data,
-        frozenset({"pre_roll_s", "post_roll_s", "visit_gap_s", "severities", "objects"}),
+        frozenset(
+            {"pre_roll_s", "post_roll_s", "visit_gap_s", "severities", "objects"}
+        ),
         where=f"{where}.clip",
     )
 
-    pre_roll = _float(data.get("pre_roll_s", 5.0), f"{where}.clip.pre_roll_s", low=0.0, high=60.0)
+    pre_roll = _float(
+        data.get("pre_roll_s", 5.0), f"{where}.clip.pre_roll_s", low=0.0, high=60.0
+    )
     if pre_roll > 30:
         warnings.append(
             f"{where}.clip.pre_roll_s is {pre_roll}s. Pre-roll costs storage on every "
@@ -625,7 +724,9 @@ def _build_clip(
     )
     unknown = sorted(set(severities) - SEVERITIES)
     if unknown:
-        raise ConfigError(f"{where}.clip.severities: {unknown} not in {sorted(SEVERITIES)}.")
+        raise ConfigError(
+            f"{where}.clip.severities: {unknown} not in {sorted(SEVERITIES)}."
+        )
     if not severities:
         raise ConfigError(
             f"{where}.clip.severities is empty: no severity would ever produce a clip."
@@ -688,11 +789,15 @@ def _build_snapshots(data: Mapping[str, Any], where: str) -> SnapshotsConfig:
     _check_keys(data, frozenset({"enabled", "retain_days"}), where=f"{where}.snapshots")
     return SnapshotsConfig(
         enabled=_bool(data.get("enabled", True), f"{where}.snapshots.enabled"),
-        retain_days=_int(data.get("retain_days", 30), f"{where}.snapshots.retain_days", low=1),
+        retain_days=_int(
+            data.get("retain_days", 30), f"{where}.snapshots.retain_days", low=1
+        ),
     )
 
 
-def _build_notify(data: Mapping[str, Any], detect: DetectConfig, where: str) -> NotifyConfig:
+def _build_notify(
+    data: Mapping[str, Any], detect: DetectConfig, where: str
+) -> NotifyConfig:
     _check_keys(data, frozenset({"enabled", "labels"}), where=f"{where}.notify")
     labels = _str_tuple(data.get("labels", ("person",)), f"{where}.notify.labels")
     not_tracked = sorted(set(labels) - set(detect.objects))
@@ -760,7 +865,9 @@ def _str_tuple(value: Any, where: str) -> tuple[str, ...]:
 # ---------------------------------------------------------------------------------------
 
 
-def to_frigate(config: CamerasConfig, *, allow_short_headroom: bool = False) -> dict[str, Any]:
+def to_frigate(
+    config: CamerasConfig, *, allow_short_headroom: bool = False
+) -> dict[str, Any]:
     """Generate Frigate's config from ours. Deterministic: same input, same output.
 
     **Partial on purpose.** This emits what the design has actually settled — the review

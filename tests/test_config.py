@@ -84,8 +84,7 @@ def test_unknown_key_error_names_the_key_and_where(tmp_path: Path) -> None:
 def test_camera_object_list_replaces_the_default(tmp_path: Path) -> None:
     cfg = load(
         tmp_path,
-        BASE
-        + """\
+        BASE + """\
   garage:
     rtsp:
       main: rtsp://192.168.1.51:554/stream1
@@ -126,7 +125,9 @@ def test_null_inside_defaults_falls_back_to_the_built_in_value(tmp_path: Path) -
     A "motion" block written as a single-line null is a realistic typo, and the two
     levels must not behave differently.
     """
-    text = BASE.replace("  clip:\n    pre_roll_s: 5\n    post_roll_s: 10\n", "  clip: null\n")
+    text = BASE.replace(
+        "  clip:\n    pre_roll_s: 5\n    post_roll_s: 10\n", "  clip: null\n"
+    )
     cfg = load(tmp_path, text)
     assert cfg.cameras["front-door"].clip.pre_roll_s == 5
     assert cfg.cameras["front-door"].clip.post_roll_s == 10
@@ -146,7 +147,10 @@ def test_env_reference_is_resolved(tmp_path: Path) -> None:
         ),
         environ={"CAM_USER": "admin", "CAM_PASS": "hunter2"},
     )
-    assert cfg.cameras["front-door"].rtsp_main == "rtsp://admin:hunter2@192.168.1.50:554/stream1"
+    assert (
+        cfg.cameras["front-door"].rtsp_main
+        == "rtsp://admin:hunter2@192.168.1.50:554/stream1"
+    )
 
 
 def test_missing_env_reference_is_refused(tmp_path: Path) -> None:
@@ -270,6 +274,73 @@ def test_qsv_is_its_own_preset(tmp_path: Path) -> None:
     assert cfg.hwaccel_args() == "preset-qsv"
 
 
+def test_a_custom_model_is_kept_verbatim(tmp_path: Path) -> None:
+    """`frigate.model` exists so a larger detector is config-as-code rather than a hand
+    patch to a generated file."""
+    text = (
+        "frigate:\n"
+        "  detector: openvino\n"
+        "  model:\n"
+        "    path: /config/model_cache/yolov9c.xml\n"
+        "    width: 640\n"
+        "    height: 640\n"
+        "    labelmap_path: /labelmap/coco-80.txt\n"
+        "    model_type: yolo-generic\n" + BASE
+    )
+
+    cfg = load(tmp_path, text)
+
+    assert cfg.frigate_model == {
+        "path": "/config/model_cache/yolov9c.xml",
+        "width": 640,
+        "height": 640,
+        "labelmap_path": "/labelmap/coco-80.txt",
+        "model_type": "yolo-generic",
+    }
+
+
+def test_a_custom_model_without_a_labelmap_is_refused(tmp_path: Path) -> None:
+    """The 2026-10-20 outage as a test: without `labelmap_path` Frigate falls back to its
+    80-class map, class 1 becomes `bicycle` instead of `person`, and no event is ever
+    created — while every health indicator stays green."""
+    text = (
+        "frigate:\n"
+        "  detector: openvino\n"
+        "  model:\n"
+        "    path: /openvino-model/ssdlite_mobilenet_v2.xml\n"
+        "    width: 300\n"
+        "    height: 300\n" + BASE
+    )
+
+    with pytest.raises(ConfigError, match="labelmap_path"):
+        load(tmp_path, text)
+
+
+def test_a_custom_model_key_typo_is_refused(tmp_path: Path) -> None:
+    text = (
+        "frigate:\n"
+        "  model:\n"
+        "    path: /x.xml\n"
+        "    width: 640\n"
+        "    height: 640\n"
+        "    labelmap_path: /labelmap/coco-80.txt\n"
+        "    modeltype: yolo-generic\n" + BASE
+    )
+
+    with pytest.raises(ConfigError, match="unknown key"):
+        load(tmp_path, text)
+
+
+def test_a_frigate_plus_model_needs_only_its_id(tmp_path: Path) -> None:
+    """`plus://<model_id>` is described by Frigate itself — size, tensor layout and label map
+    all come with the download, so requiring them here would force a wrong guess."""
+    text = "frigate:\n  detector: openvino\n  model:\n    path: plus://abc123\n" + BASE
+
+    cfg = load(tmp_path, text)
+
+    assert cfg.frigate_model == {"path": "plus://abc123"}
+
+
 def test_an_unknown_accelerator_is_refused(tmp_path: Path) -> None:
     """`preset-vaapi` here is the operator guessing at Frigate's spelling; accepting it
     would hide the mapping, and accepting `nvidia` would promise a runtime this stack does
@@ -380,12 +451,16 @@ def test_bad_rtsp_scheme_is_refused(tmp_path: Path) -> None:
     with pytest.raises(ConfigError, match="rtsp://"):
         load(
             tmp_path,
-            BASE.replace("rtsp://192.168.1.50:554/stream1", "http://192.168.1.50/stream1"),
+            BASE.replace(
+                "rtsp://192.168.1.50:554/stream1", "http://192.168.1.50/stream1"
+            ),
         )
 
 
 def test_detection_on_main_stream_warns(tmp_path: Path) -> None:
-    cfg = load(tmp_path, BASE.replace("      sub: rtsp://192.168.1.50:554/stream2\n", ""))
+    cfg = load(
+        tmp_path, BASE.replace("      sub: rtsp://192.168.1.50:554/stream2\n", "")
+    )
     assert any("rtsp.sub" in w for w in cfg.warnings)
 
 
@@ -464,8 +539,7 @@ def test_the_site_timezone_is_not_pushed_into_frigates_config(tmp_path: Path) ->
 def test_disabled_camera_is_omitted_from_frigate(tmp_path: Path) -> None:
     cfg = load(
         tmp_path,
-        BASE
-        + """\
+        BASE + """\
   old-garage:
     enabled: false
     rtsp:
@@ -519,8 +593,7 @@ def test_every_enabled_mode_has_a_non_zero_window(tmp_path: Path, mode: str) -> 
 def test_multiple_cameras_do_not_leak_settings(tmp_path: Path) -> None:
     cfg = load(
         tmp_path,
-        BASE
-        + """\
+        BASE + """\
   garage:
     rtsp:
       main: rtsp://192.168.1.51:554/stream1

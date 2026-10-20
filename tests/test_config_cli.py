@@ -65,7 +65,8 @@ def cameras(*blocks: str) -> str:
     `record`.
     """
     body = "".join(
-        textwrap.indent(textwrap.dedent(block).strip("\n") + "\n", "  ") for block in blocks
+        textwrap.indent(textwrap.dedent(block).strip("\n") + "\n", "  ")
+        for block in blocks
     )
     return HEAD + body
 
@@ -226,7 +227,9 @@ def test_the_camera_urls_are_opened_by_go2rtc_not_by_a_second_ffmpeg_reader(
         "front-door": MAIN_URL,
         "front-door_sub": SUB_URL,
     }
-    paths = [source["path"] for source in out["cameras"]["front-door"]["ffmpeg"]["inputs"]]
+    paths = [
+        source["path"] for source in out["cameras"]["front-door"]["ffmpeg"]["inputs"]
+    ]
     assert paths == [f"{RESTREAM}/front-door", f"{RESTREAM}/front-door_sub"]
 
 
@@ -266,9 +269,9 @@ def test_a_disabled_camera_gets_no_restream_and_no_live_stream(tmp_path: Path) -
 
 @pytest.mark.parametrize("text", [BASE, NO_SUB])
 def test_exactly_one_input_holds_each_role(tmp_path: Path, text: str) -> None:
-    inputs = build_frigate_config(make_config(tmp_path, text))["cameras"]["front-door"]["ffmpeg"][
-        "inputs"
-    ]
+    inputs = build_frigate_config(make_config(tmp_path, text))["cameras"]["front-door"][
+        "ffmpeg"
+    ]["inputs"]
     roles = [role for source in inputs for role in source["roles"]]
 
     assert roles.count("detect") == 1
@@ -278,7 +281,9 @@ def test_exactly_one_input_holds_each_role(tmp_path: Path, text: str) -> None:
 def test_the_detect_block_carries_the_configured_resolution(tmp_path: Path) -> None:
     config = make_config(
         tmp_path,
-        with_camera("detect:\n  width: 640\n  height: 360\n  fps: 7\n  min_initialized: 3"),
+        with_camera(
+            "detect:\n  width: 640\n  height: 360\n  fps: 7\n  min_initialized: 3"
+        ),
     )
 
     entry = build_frigate_config(config)["cameras"]["front-door"]
@@ -386,7 +391,9 @@ def test_hardware_acceleration_is_absent_when_off(tmp_path: Path) -> None:
     assert "ffmpeg" not in out
 
 
-def test_hardware_acceleration_is_emitted_as_a_global_ffmpeg_arg(tmp_path: Path) -> None:
+def test_hardware_acceleration_is_emitted_as_a_global_ffmpeg_arg(
+    tmp_path: Path,
+) -> None:
     """Global on purpose — record, detect and the live view all decode these streams, and
     one decision should not become three copies of the same arguments."""
     text = "frigate:\n  hwaccel: vaapi\n" + BASE
@@ -409,7 +416,12 @@ def test_openvino_detection_is_emitted_on_the_gpu(tmp_path: Path) -> None:
 def test_openvino_emits_the_model_its_buffer_is_sized_from(tmp_path: Path) -> None:
     """Frigate sizes each camera's shared buffer from the detector's model dimensions and
     falls back to 320 bytes when none is configured — the detector then dies at start-up with
-    `buffer is too small for requested array`, taking the camera process with it."""
+    `buffer is too small for requested array`, taking the camera process with it.
+
+    `labelmap_path` must travel with it: without the 91-class labelmap Frigate falls back to
+    the 80-class `/labelmap.txt`, class 1 (`person` here) resolves to `bicycle`, and
+    `objects.track: [person]` matches nothing — detection runs and produces no events.
+    """
     text = "frigate:\n  detector: openvino\n" + BASE
 
     out = build_frigate_config(make_config(tmp_path, text))
@@ -419,6 +431,7 @@ def test_openvino_emits_the_model_its_buffer_is_sized_from(tmp_path: Path) -> No
         "width": 300,
         "height": 300,
         "input_pixel_format": "bgr",
+        "labelmap_path": "/openvino-model/coco_91cl_bkgr.txt",
     }
 
 
@@ -428,6 +441,28 @@ def test_the_cpu_detector_emits_no_model_block(tmp_path: Path) -> None:
     out = build_frigate_config(make_config(tmp_path))
 
     assert "model" not in out
+
+
+def test_a_custom_model_replaces_the_bundled_one(tmp_path: Path) -> None:
+    """A larger model comes from `cameras.yml`, so the generated file never has to be
+    patched by hand."""
+    text = (
+        "frigate:\n"
+        "  detector: openvino\n"
+        "  model:\n"
+        "    path: /config/model_cache/yolov9c.xml\n"
+        "    width: 640\n"
+        "    height: 640\n"
+        "    labelmap_path: /labelmap/coco-80.txt\n"
+        "    model_type: yolo-generic\n" + BASE
+    )
+
+    out = build_frigate_config(make_config(tmp_path, text))
+
+    assert out["model"]["path"] == "/config/model_cache/yolov9c.xml"
+    assert out["model"]["width"] == 640
+    assert out["model"]["model_type"] == "yolo-generic"
+    assert out["model"]["labelmap_path"] == "/labelmap/coco-80.txt"
 
 
 def test_the_generated_file_carries_no_top_level_timezone(tmp_path: Path) -> None:
@@ -507,7 +542,9 @@ def test_the_header_says_the_file_is_generated_and_derived(tmp_path: Path) -> No
     assert rendered.startswith("# GENERATED FILE — DO NOT EDIT.")
     assert str(path) in rendered  # names the file it was generated from
     assert "INV-3" in rendered  # editing this one is wasted work
-    assert "INV-2" in rendered  # and it carries credentials, so it must not be committed
+    assert (
+        "INV-2" in rendered
+    )  # and it carries credentials, so it must not be committed
 
 
 def test_the_header_warns_about_the_published_port(tmp_path: Path) -> None:
@@ -569,7 +606,9 @@ def test_validate_refuses_a_config_with_no_enabled_cameras(
 def test_validate_reports_a_missing_file(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    assert main(["validate", "--cameras", str(tmp_path / "not-here.yml")]) == EXIT_CONFIG
+    assert (
+        main(["validate", "--cameras", str(tmp_path / "not-here.yml")]) == EXIT_CONFIG
+    )
 
     assert "error:" in capsys.readouterr().err
 

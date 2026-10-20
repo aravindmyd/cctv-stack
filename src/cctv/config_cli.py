@@ -90,11 +90,21 @@ _DETECTOR_BLOCKS: dict[str, dict[str, Any]] = {
 #: the detector's `model` dimensions and falls back to **320 bytes** when none is configured.
 #: Without this block the detector dies at start-up with
 #: `TypeError: buffer is too small for requested array` and every camera process dies with it.
+#:
+#: ⚠️ `labelmap_path` is NOT optional. Supplying `model:` replaces Frigate's built-in model
+#: config, and when `labelmap_path` is absent Frigate falls back to `/labelmap.txt` — the
+#: **80-class** list whose index 0 is `person`. This model is the **91-class** graph where
+#: index 0 is `__background__` and index **1** is `person`, so every detection arrived
+#: one class early: a person was labelled `bicycle` and `objects.track: [person]` matched
+#: nothing. The symptom is silent — the detector loads, reports a plausible inference time
+#: and detection fps — and it cost a two-hour outage on 2026-10-20. Frigate's own default
+#: config for this exact model carries the same line (`frigate/config/config.py`).
 _OPENVINO_MODEL: dict[str, Any] = {
     "path": "/openvino-model/ssdlite_mobilenet_v2.xml",
     "width": 300,
     "height": 300,
     "input_pixel_format": "bgr",
+    "labelmap_path": "/openvino-model/coco_91cl_bkgr.txt",
 }
 
 
@@ -146,8 +156,9 @@ def build_frigate_config(config: CamerasConfig) -> dict[str, Any]:
         out["ffmpeg"] = {"hwaccel_args": hwaccel_args}
 
     if config.frigate_detector == "openvino":
-        # Not optional: the detector's shared buffer is sized from these dimensions.
-        out["model"] = dict(_OPENVINO_MODEL)
+        # Not optional: the detector's shared buffer is sized from these dimensions. A
+        # `frigate.model` block in cameras.yml replaces the bundled default outright.
+        out["model"] = dict(config.frigate_model or _OPENVINO_MODEL)
     # No `timezone` here, and that is load-bearing: Frigate 0.18 rejects the whole config if
     # a top-level `timezone` is present and starts in safe mode with no cameras. See
     # `to_frigate` for why.
@@ -206,7 +217,8 @@ def build_frigate_config(config: CamerasConfig) -> dict[str, Any]:
         entry["objects"] = {
             "track": list(camera.detect.objects),
             "filters": {
-                label: {"min_score": camera.detect.min_score} for label in camera.detect.objects
+                label: {"min_score": camera.detect.min_score}
+                for label in camera.detect.objects
             },
         }
         entry["snapshots"] = {
@@ -219,7 +231,9 @@ def build_frigate_config(config: CamerasConfig) -> dict[str, Any]:
 
 def render(config: CamerasConfig, *, cameras_path: Path) -> str:
     """The full text of the generated config, header included."""
-    body = yaml.safe_dump(build_frigate_config(config), sort_keys=False, default_flow_style=False)
+    body = yaml.safe_dump(
+        build_frigate_config(config), sort_keys=False, default_flow_style=False
+    )
     return _HEADER.format(cameras_path=cameras_path) + body
 
 
@@ -293,12 +307,18 @@ def main(argv: list[str] | None = None) -> int:
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    validate = sub.add_parser("validate", help="check the configuration without writing anything")
-    validate.add_argument("--cameras", type=Path, required=True, help="path to cameras.yml")
+    validate = sub.add_parser(
+        "validate", help="check the configuration without writing anything"
+    )
+    validate.add_argument(
+        "--cameras", type=Path, required=True, help="path to cameras.yml"
+    )
     validate.set_defaults(func=_cmd_validate)
 
     generate = sub.add_parser("generate", help="write Frigate's config")
-    generate.add_argument("--cameras", type=Path, required=True, help="path to cameras.yml")
+    generate.add_argument(
+        "--cameras", type=Path, required=True, help="path to cameras.yml"
+    )
     generate.add_argument("--out", type=Path, required=True, help="where to write it")
     generate.set_defaults(func=_cmd_generate)
 

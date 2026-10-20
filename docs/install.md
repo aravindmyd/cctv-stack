@@ -1,27 +1,92 @@
 # Install
 
-Two ways to run cctv-stack. Use Docker Compose unless you already run Frigate yourself and
-only want the additional services.
+One command takes a fresh machine to a working CCTV system: `./install.sh`. This page is the
+whole path — what to prepare, what the installer asks, the URLs to open when it finishes, and how
+to prove it is recording rather than merely running.
 
-## Requirements
+If you read only one section, read [Verify it is working](#step-5-verify-it-is-actually-working).
+An installation that is **up** and one that is **working** are different things, and the
+difference is four commands.
 
-| | |
-|---|---|
-| Host | A machine that stays on: a mini-PC, a NAS, a Raspberry Pi 5 |
-| Docker | Engine 24 or newer with the Compose v2 plugin |
-| Storage | An SSD sized for your clip retention. Avoid SD cards |
-| Cameras | RTSP URLs, including credentials. ONVIF discovery is not used |
-| Cloud backup | Optional. A Backblaze B2 bucket and an application key |
-| Network | Outbound access for B2. No inbound access is required |
+---
 
-## From a release bundle
+## Step 0 — what you need
 
-Each tagged release publishes one tarball, a checksum file, and a signature over that
-checksum file. **Verify before you extract**, because everything after this step runs code:
-the bundle's `install.sh` configures a machine and starts containers.
+| | Requirement | Why |
+|---|---|---|
+| **A machine that stays on** | Mini-PC, NAS, Raspberry Pi 5, or a VM | It is the recorder. Sleep is data loss |
+| **Docker** | Engine 24+ with the Compose v2 plugin | A bare `docker-compose` binary is not enough |
+| **Disk** | An SSD. 160 GB is comfortable for two cameras | ~1 GB per camera per hour of continuous footage, and SD cards die |
+| **Cameras** | RTSP URLs **including username and password** | ONVIF discovery is not used — you supply the URLs |
+| **Cloud backup** (optional) | A Backblaze B2 bucket and application key | Without it nothing leaves the machine, and local retention never deletes a clip |
+| **A phone** (optional) | The [ntfy app](https://ntfy.sh/#subscribe) | Where alerts arrive |
+
+Two numbers decide how much disk you need, and both are per camera:
+
+- Continuous footage is kept **2 days** (`record.keep_days`), motion footage **10 days**.
+- Clips are kept **90 days locally** and **60 days in B2**, and a local clip is only deleted once
+  its upload is confirmed.
+
+At 2 Mbps that is roughly **21 GB per camera per day** of continuous footage. A camera at 4 Mbps
+needs about 86 GB for the two days.
+
+### Get the camera URL first
+
+Check the camera's manual or its web interface. These are the common shapes:
+
+```text
+rtsp://admin:PASSWORD@192.168.1.50:554/Streaming/Channels/101                 Hikvision
+rtsp://admin:PASSWORD@192.168.1.51:554/cam/realmonitor?channel=1&subtype=0     Dahua
+rtsp://user:PASSWORD@192.168.1.52:554/stream1                         Reolink / Tapo / generic
+```
+
+Test it before installing. A URL that fails here fails at 3 a.m. too:
 
 ```bash
-VERSION=0.7.0
+ffplay -rtsp_transport tcp "rtsp://admin:PASSWORD@192.168.1.50:554/Streaming/Channels/101"
+# No ffplay? Any player works: VLC → Open Network Stream → paste the URL.
+```
+
+---
+
+## Step 1 — install Docker
+
+```bash
+# Debian / Ubuntu / Raspberry Pi OS
+curl -fsSL https://get.docker.com | sudo sh
+sudo usermod -aG docker "$USER"    # then log out and back in
+
+# Fedora
+sudo dnf install -y docker docker-compose-plugin && sudo systemctl enable --now docker
+
+# macOS / Windows — Docker Desktop, with the daemon running
+```
+
+These are the same two checks `install.sh` runs before anything else:
+
+```bash
+docker compose version    # v2.x — if this errors, the Compose plugin is missing
+docker info > /dev/null && echo "the daemon is up"
+```
+
+---
+
+## Step 2 — get the files
+
+### From the repository (works today)
+
+```bash
+git clone https://github.com/aravindmyd/cctv-stack.git
+cd cctv-stack
+```
+
+### From a signed release bundle
+
+Each release from the one that ships the bundle onward publishes a tarball, a checksum file, and
+a signature over that file. **Verify before extracting** — everything after this step runs code:
+
+```bash
+VERSION=0.8.0   # the version you are installing
 
 curl -fsSLO "https://github.com/aravindmyd/cctv-stack/releases/download/v$VERSION/cctv-stack-$VERSION.tar.gz"
 curl -fsSLO "https://github.com/aravindmyd/cctv-stack/releases/download/v$VERSION/SHA256SUMS"
@@ -37,75 +102,305 @@ cosign verify-blob \
     'https://github.com/aravindmyd/cctv-stack/.github/workflows/publish.yml@refs/tags/v.*' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   SHA256SUMS
-```
 
-Two checks, and they answer different questions. `sha256sum -c` proves the file you
-downloaded is the file whose checksum you were given. `cosign verify-blob` proves *who*
-gave it to you: the signature is keyless, so there is no long-lived key to leak, and the
-certificate records that the signer was this repository's publish workflow running on a
-`v*` tag. Without the second check, a tampered download and a tampered checksum agree with
-each other perfectly.
-
-The bundle contains no source, no tests and no `.env`. It has `compose.yml` without any
-`build:` blocks, a `versions.yml` recording the image digests this release was signed for,
-and `SHA256SUMS`. Its `install.sh` pulls those exact digests.
-
-```bash
 sudo mkdir -p /opt/cctv
 sudo tar -xzf "cctv-stack-$VERSION.tar.gz" -C /opt/cctv --strip-components=1
-cd /opt/cctv && sudo ./install.sh
+cd /opt/cctv
 ```
 
-`install.sh` notices the bundle's `versions.yml` and does not build: it picks the
-`compose.override.yml` for this machine's architecture, pulls those exact digests, and
-only then asks its questions. There is no source in the bundle to build from, so the two
-paths cannot be confused.
+The two checks answer different questions. `sha256sum -c` proves the file matches the checksum
+you were given. `cosign verify-blob` proves **who** gave you that checksum. Without the second, a
+tampered download and a tampered checksum agree with each other perfectly.
 
-Pinned by digest in a release: this project's image, Frigate, and mosquitto. **Not yet
-pinned:** Gatus and ntfy, which are pulled by tag because their digests are not in the
-release manifest — a gap that is recorded rather than glossed over.
+> **Status.** The bundle is built, verified and signed by the release workflow, but the newest
+> published release (`0.7.0`) predates it. Until a newer tag exists, use the repository path —
+> it produces the same stack, and `install.sh` notices the difference and builds instead of
+> pulling.
 
-| Flag | What it does |
-|---|---|
-| `--offline` | Skip the pull. Every pinned image must already be loaded, and each one is checked before anything starts |
-| `--registry HOST` | Fetch our image from a mirror at `HOST`, keeping the digest. Frigate and mosquitto are left alone: a mirror that serves "the same version" retagged is not the same bytes |
+---
 
-## From the repository
-
-For development, or if you want the source:
+## Step 3 — run the installer
 
 ```bash
-git clone https://github.com/aravindmyd/cctv-stack.git
-cd cctv-stack
 ./install.sh
 ```
 
-This path builds the image locally, so it needs a compiler-free but network-connected
-machine and takes longer. What it produces is the same stack; the difference is where the
-image came from.
-
-It asks four sets of questions and does the rest:
+It asks four sets of questions, every one with a default, so the common path is pressing Enter.
 
 ```text
-Location        parents-home          appears in every clip path and cloud object key
-Timezone        Asia/Kolkata         decides which directory a clip is filed under
-Cameras         name, main RTSP, optional sub-stream, repeat
-Cloud backup    Backblaze B2 bucket + key, or skip
+==> Configuring this site
+
+The location name appears in every clip path and cloud object key.
+Location [mini-pc]: parents-home
+
+The timezone decides which directory a clip is filed under. It is never
+guessed from the container, so confirm it.
+Timezone [Europe/London]: Asia/Kolkata
+
+Cameras. The RTSP URL is written to .env and referenced from cameras.yml as
+${CAMERA_FRONT_DOOR_RTSP}; it is never printed back with its password.
+
+  Camera 1
+    Name [front-door]:
+    Main RTSP URL: rtsp://admin:secret@192.168.1.50:554/Streaming/Channels/101
+    Is there a sub-stream URL (cheaper detection)? [y/N]: y
+    Sub RTSP URL: rtsp://admin:secret@192.168.1.50:554/Streaming/Channels/102
+
+Add another camera? [y/N]:
+
+Cloud backup is optional. Without it the uploader runs and reports DISABLED,
+and local retention never deletes a clip, because nothing is backed up.
+Enable Backblaze B2 backup? [y/N]: y
+  Bucket: cctv-parents-home
+  Key ID: 0051a2b3c4d5e6f7000000001
+  Application key (not echoed):
 ```
 
-Then it validates what it wrote with the same loader the stack uses, detects the host,
-provisions the bucket if you gave it one (create, versioning, expiry rule, probe object),
-starts everything, and waits for Frigate. Nothing is started until the configuration is
-valid, and nothing is uploaded anywhere unless you asked for cloud backup.
+Rules the installer enforces so you do not have to remember them:
 
-Every question has a default, so the common path is pressing Enter. Passwords and keys are
-never echoed and never printed back in the summary — the camera URL is shown with its
-credentials removed.
+| Input | Rule | Why |
+|---|---|---|
+| Location | lowercase, 1–32 characters, interior hyphens | It appears in every clip path and every cloud object key |
+| Camera name | lowercase kebab-case (`front-door`) | Same reason — it becomes a directory name |
+| Timezone | an IANA name (`Asia/Kolkata`) | Decides which date directory a clip is filed under |
+| RTSP URL | must start `rtsp://` and name a host | A placeholder produces a camera that looks configured and never connects |
 
-`./install.sh` is safe to run again: it reconciles, and it will not replace a
-`config/cameras.yml` that you have edited unless you ask it to.
+**Passwords are never echoed and never printed back.** The camera URL goes into `.env` and is
+referenced from `cameras.yml` as `${CAMERA_FRONT_DOOR_RTSP}`, so the file you show someone does
+not contain the password.
 
-## Docker Compose
+### What it does next, in order
+
+```text
+1. Builds the image — or, in a bundle, pulls this release's pinned digests
+2. Asks the questions above and writes config/cameras.yml and .env
+3. Detects this host against the support matrix, and sizes Frigate's shared memory
+4. Generates two internal tokens (admin endpoints, monitoring heartbeats)
+5. Validates what it wrote, with the same loader the services use
+6. Provisions the B2 bucket — create, versioning, expiry rule, probe object
+7. Starts the stack, and waits up to 90 s for Frigate
+8. Sends a real test message to every configured alert channel
+```
+
+Steps 6 and 8 are loud but not fatal: a wrong bucket key means clips are not uploaded yet, and a
+broken alert channel means alerts do not arrive. Neither stops recording, and both print how to
+re-run them.
+
+`./install.sh` is safe to run again. It reconciles rather than replaces, and it will not
+overwrite a `config/cameras.yml` you have edited unless you ask it to.
+
+---
+
+## Step 4 — the URLs
+
+Replace `192.168.1.10` with this machine's address:
+
+```bash
+hostname -I | awk '{print $1}'     # Linux
+ipconfig getifaddr en0             # macOS
+```
+
+| What | URL | Reachable from |
+|---|---|---|
+| **Status page** — *is my CCTV working?* | `http://192.168.1.10:8084/status` | Your LAN |
+| **Gatus** — dashboard and alert history | `http://192.168.1.10:3001` | Your LAN |
+| **ntfy** — the alert channel | `http://192.168.1.10:8085` | Your LAN |
+| **Frigate UI** — live views, recordings, zones | `https://127.0.0.1:8971` | **Only this machine** |
+| Uploader health | `http://127.0.0.1:8082/health` | Only this machine |
+| Cleanup health | `http://127.0.0.1:8083/health` | Only this machine |
+| Metrics | `http://127.0.0.1:8082/metrics`, `:8083`, `:8084` | Only this machine |
+
+Open the status page first. A browser gets the page; a script gets JSON:
+
+```bash
+curl -s http://192.168.1.10:8084/status | jq
+```
+
+**Why the Frigate UI is loopback-only, and how to reach it from your laptop.** Port 8971 binds to
+`127.0.0.1` on purpose: it is the one surface that shows every camera and changes every setting.
+Forward it over SSH instead of publishing it:
+
+```bash
+ssh -N -L 8971:127.0.0.1:8971 user@192.168.1.10
+# then open https://127.0.0.1:8971 in your laptop's browser
+```
+
+It is **HTTPS with a self-signed certificate** Frigate generates on first start, so the browser
+warns once. That warning is expected on a loopback port. If you see *"plain HTTP request sent to
+HTTPS port"*, you opened `http://` by mistake.
+
+**Port 5000 is never published, by design.** Frigate treats requests arriving on it as anonymous
+admin, so it is reachable only from inside the Docker network.
+
+Two secrets are generated for you on first install and left alone afterwards:
+`INTERNAL_API_TOKEN` (without it the uploader's admin endpoints are not mounted at all) and
+`CCTV_MONITORING_TOKEN` (without it Gatus's heartbeat endpoints are omitted from its config, so
+monitors would exist but nothing would report into them).
+
+---
+
+## Step 5 — verify it is actually working
+
+Running is not working. Four checks, each answering a different question.
+
+### 1. The machine agrees it is healthy
+
+```bash
+./scripts/doctor.sh
+```
+
+Read-only — it starts nothing, stops nothing, changes nothing. It checks the host, storage,
+configuration, the database, connectivity (including the ntfy server) and the pipeline. Fix
+anything it prints as failing before going further.
+
+### 2. Every camera is delivering frames
+
+```bash
+curl -s http://192.168.1.10:8084/status | jq '.cameras'
+```
+
+Each camera should be online with a frames-per-second value above zero. A camera that is listed
+but `QUIET` connects and sends nothing — usually a wrong stream path, or a stream the camera only
+offers on another channel.
+
+Frigate's own answer is the authoritative one:
+
+```bash
+docker compose exec -T clip-worker python -c \
+  "import json,urllib.request as u; print(json.dumps(json.load(u.urlopen('http://frigate:5000/api/stats'))['cameras'], indent=2))"
+```
+
+A camera with `camera_fps: 0` has never delivered a frame.
+
+### 3. Footage is landing on disk
+
+```bash
+ls -lt data/media/recordings | head
+docker compose logs --tail=200 frigate | grep -ciE 'not valid|safe mode'   # must be 0
+```
+
+A count above zero on the second command means Frigate rejected its config and started in **safe
+mode** — with zero cameras and no error where you would look. It is the most common cause of "it
+installed fine but nothing records".
+
+### 4. A clip exists, which is the entire point
+
+Walk in front of a camera, wait about 30 seconds past the end of the activity, then:
+
+```bash
+find data/clips -name '*.mp4' -newermt '-10 minutes' | head    # GNU find
+ls -t data/clips/*/*/*/*/*.mp4 | head                          # portable
+```
+
+You want a path shaped like `data/clips/front-door/2026/10/20/14-32-05.mp4`, with a matching
+`.mp4.json` beside it. That file and the row behind it are what everything else protects.
+
+If you configured B2, confirm the upload rather than assuming it:
+
+```bash
+curl -s http://127.0.0.1:8082/health | jq '.state'               # HEALTHY
+curl -s http://127.0.0.1:8083/health | jq '.state'               # HEALTHY
+curl -s http://127.0.0.1:8082/admin/queue | jq '.uploaded_24h'   # above 0
+```
+
+---
+
+## Step 6 — put alerts on your phone
+
+The stack ships its own alert path: **Gatus** watches everything and **ntfy** delivers to a
+phone. Both are already running, and the installer sent a test message during step 3.
+
+1. Install the **ntfy** app ([iOS](https://apps.apple.com/us/app/ntfy/id1625396347) ·
+   [Android](https://play.google.com/store/apps/details?id=io.heckel.ntfy)), or open
+   `http://192.168.1.10:8085` in a browser.
+2. Subscribe to server `http://192.168.1.10:8085`, topic `cctv`.
+3. Open `http://192.168.1.10:3001` — Gatus shows every monitor and its history.
+
+If the test message did not arrive, ask again rather than guessing:
+
+```bash
+docker compose exec -T status cctv-notify test
+```
+
+| Output | Meaning | Fix |
+|---|---|---|
+| `ntfy: delivered` | The channel works | Check the phone subscribes to the same topic |
+| `ntfy: FAILED — cannot reach …` | The ntfy container is not up | `docker compose up -d ntfy` |
+| `telegram: skipped (not configured)` | No Telegram token set | Expected unless you configured one |
+
+To use a topic other than `cctv` — worth doing when you operate more than one installation — set
+`CCTV_STATUS_NTFY_TOPIC` in `.env` and restart `status` and `gatus`.
+
+---
+
+## Step 7 — add a camera later
+
+Cameras are data. Nothing needs redeploying, and no code refers to a camera by name.
+
+1. Put the credentials in `.env`, named after the camera:
+
+   ```ini
+   CAMERA_GARAGE_RTSP=rtsp://user:password@192.168.1.51:554/Streaming/Channels/101
+   CAMERA_GARAGE_SUB=rtsp://user:password@192.168.1.51:554/Streaming/Channels/102
+   ```
+
+2. Add the camera block to `config/cameras.yml`:
+
+   ```yaml
+   cameras:
+     garage:
+       display_name: Garage
+       rtsp:
+         main: ${CAMERA_GARAGE_RTSP}
+         sub: ${CAMERA_GARAGE_SUB}
+   ```
+
+3. Prove the URL works before applying anything — inside the Frigate container, which already
+   has the network access the cameras need:
+
+   ```bash
+   docker compose exec -T frigate ffprobe -v error -rtsp_transport tcp "$CAMERA_GARAGE_SUB"
+   ```
+
+   No output means the URL or the credentials are wrong. A wall of errors means the same thing.
+
+4. Validate, then apply:
+
+   ```bash
+   docker compose run --rm --no-deps config \
+     cctv-config validate --cameras /config/cameras.yml
+   docker compose up -d
+   ```
+
+   `up -d` re-runs the one-shot `config` service, which rewrites `config/frigate/config.yml`,
+   and recreates Frigate because the generated file changed.
+
+Every field is documented in [Configure](configure.md), including the per-camera retention
+windows. The one rule that matters: the name is lowercase kebab-case, because it becomes a
+directory name and a cloud object key.
+
+---
+
+## Day two
+
+| Task | Command | Details |
+|---|---|---|
+| Is anything wrong right now? | `http://<host>:8084/status` | [Health](health.md) |
+| Something is wrong — why? | `./scripts/doctor.sh` | [Doctor](doctor.md) |
+| Back up config and database | `./backup.sh`, then `./backup.sh --verify` | [Disaster recovery](disaster-recovery.md) |
+| Upgrade, or roll back | `./update.sh`, `./update.sh --rollback` | [Upgrading](#upgrading) |
+| A clip will not upload | — | [Recover uploads](recover-uploads.md) |
+| The machine is gone | `./restore.sh config`, `state`, `clips`, `rebuild` | [Disaster recovery](disaster-recovery.md) |
+| Rotate a password or B2 key | — | [Rotate credentials](rotate-credentials.md) |
+
+**Take a backup now, not after the first incident.** `./backup.sh` writes an encrypted config
+bundle and a verified online copy of the database into `data/backups/`. `--verify` re-opens the
+database and compares its row count against the live one, so a backup that has quietly stopped
+being taken is reported instead of trusted.
+
+---
+
+## Install by hand, without the installer
 
 The released image is public, so nothing in this guide needs the source repository.
 Compose needs three files: `compose.yml`, an environment file, and `cameras.yml`.
@@ -254,6 +549,8 @@ cctv-stack/
 Point `CCTV_DATA_DIR` at another path if `./data` is not where you keep data. It is the
 only directory that must survive a container rebuild.
 
+---
+
 ## pip
 
 Use this when Frigate already runs on the host and you want the four services from PyPI.
@@ -293,6 +590,8 @@ missed message costs time rather than a clip.
 
 Frigate's internal port `5000` must be reachable from these processes. It must not be
 published to your LAN: Frigate treats requests on that port as anonymous admin.
+
+---
 
 ## Upgrading
 
@@ -354,6 +653,8 @@ rolling back the image after a schema migration needs the pre-upgrade database, 
 `update.sh` always writes one. `./update.sh --rollback` restores it and repins the previous
 image in one step.
 
+---
+
 ## Removing the stack
 
 ```bash
@@ -375,6 +676,8 @@ keeps billing after it is gone. Empty it, or set a lifecycle rule, on purpose.
 
 If something is wrong but you are not ready to remove the stack, run `./scripts/doctor.sh`
 instead — it diagnoses without changing anything. See [Diagnose problems](doctor.md).
+
+---
 
 ## Troubleshooting the first start
 

@@ -21,15 +21,20 @@ It is not a replacement for Frigate. It is the missing layer around it.
 **Current release: `0.7.0`.** Clips, B2 upload, upload-aware local retention, the aggregate
 status page with Gatus/ntfy alerting, a guided one-command installer, `./scripts/doctor.sh`
 diagnosis, encrypted backups, `./update.sh` upgrades, two days of continuous footage kept
-locally, cloud retention that only deletes an object once the provider confirms it is gone, and a daily
-reconciliation that reports where the bucket and the database disagree. Housekeeping and
-force-delete are not — see [`CONTRIBUTING.md`](CONTRIBUTING.md) for the exact state and roadmap.
+locally, cloud retention that only deletes an object once the provider confirms it is gone, and a
+daily reconciliation that reports where the bucket and the database disagree.
+
+Built since that tag, and in `master` today: housekeeping that bounds the database and tidies the
+clip tree, footage recovery from the bucket plus reconstruction of the database when there is no
+backup at all (`./restore.sh clips|rebuild`), a real test message to every alert channel during
+install, and a signed release bundle. `force-delete` and the single-instance lock are deferred
+deliberately — see [`CONTRIBUTING.md`](CONTRIBUTING.md) for the exact state and roadmap.
 
 ---
 
 ## Install
 
-The shortest path is one command, from a checkout:
+On the machine that will do the recording, with Docker Engine 24+ and the Compose v2 plugin:
 
 ```bash
 git clone https://github.com/aravindmyd/cctv-stack.git
@@ -37,10 +42,51 @@ cd cctv-stack
 ./install.sh
 ```
 
-It asks for the location, timezone, cameras and optional B2 credentials, validates the
-result through the same loader the services use, detects the host, starts the stack, and
-waits for Frigate. See [`docs/install.md`](docs/install.md) for the released-image path
-and the by-hand alternative.
+It asks four things, each with a default, so the common path is pressing Enter:
+
+| Question | Example | Notes |
+|---|---|---|
+| Location | `parents-home` | Lowercase; appears in every clip path and cloud object key |
+| Timezone | `Asia/Kolkata` | Decides which date directory a clip is filed under |
+| Cameras | `front-door` + its RTSP URL | Repeatable. The password is never echoed or printed back |
+| Cloud backup | B2 bucket + key, or skip | Without it nothing leaves the machine, and nothing is ever deleted locally |
+
+Then it validates what it wrote through the same loader the services use, detects the host and
+sizes Frigate's shared memory, generates the two internal tokens, provisions the B2 bucket,
+starts the stack, waits for Frigate, and sends a real test message to every configured alert
+channel.
+
+### The URLs you need
+
+Replace `192.168.1.10` with the machine's LAN address (`hostname -I | awk '{print $1}'`).
+
+| What | URL |
+|---|---|
+| **Status page** — *is my CCTV working?* | `http://192.168.1.10:8084/status` |
+| **Gatus** — dashboard and alert history | `http://192.168.1.10:3001` |
+| **ntfy** — subscribe a phone to topic `cctv` | `http://192.168.1.10:8085` |
+| **Frigate UI** — live views and recordings | `https://127.0.0.1:8971` on the machine itself, or `ssh -N -L 8971:127.0.0.1:8971 user@host` |
+| Uploader / cleanup health | `http://127.0.0.1:8082/health`, `http://127.0.0.1:8083/health` |
+
+The Frigate UI is **HTTPS** with a certificate Frigate generates itself, so the browser warns
+once. It binds to loopback on purpose: it is the one surface that can see every camera and change
+every setting.
+
+### Is it actually working?
+
+Four checks, each answering a different question:
+
+```bash
+./scripts/doctor.sh                                  # 1. the machine's own verdict, read-only
+curl -s http://192.168.1.10:8084/status | jq .cameras # 2. every camera delivering frames
+ls -lt data/media/recordings | head                  # 3. footage landing on disk
+find data/clips -name '*.mp4' -newermt '-10 minutes'  # 4. a clip exists — the entire point
+```
+
+**[`docs/install.md`](docs/install.md) is the full guide** — prerequisites, every question the
+installer asks, why each URL is reachable from where it is, step-by-step verification, phone
+alerts, adding a camera later, upgrading, and a troubleshooting table. There is also a by-hand
+Compose path and a `pip` path for running the services against a Frigate you already have.
 
 The Python package is usable on its own for the parts that read Frigate's API:
 

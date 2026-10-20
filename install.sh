@@ -176,6 +176,31 @@ else
   say "Set $shm_line in .env."
 fi
 
+# ----------------------------------------------------------------------------------------
+# Two secrets the stack uses to authenticate its own internal calls, and neither can be a
+# constant: the uploader's admin endpoints are not mounted at all without one, and without the
+# other Gatus's heartbeat endpoints are omitted from the generated config, so an installation
+# would look healthy while three of its five monitors silently did nothing.
+#
+# Generated once, never printed, and never rotated behind the operator's back: an existing value
+# is left exactly as it is.
+ensure_secret() {
+  local name="$1" value
+  if grep -q "^${name}=..*" .env; then
+    say "Keeping the existing ${name} in .env."
+    return
+  fi
+  value=$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')
+  # Drop an empty `NAME=` line first, so the file ends up with exactly one entry.
+  sed -i.bak "/^${name}=$/d" .env && rm -f .env.bak
+  printf '%s=%s\n' "$name" "$value" >> .env
+  say "Generated ${name} in .env (not shown, and not needed on the command line)."
+}
+
+step "Generating the internal tokens"
+ensure_secret INTERNAL_API_TOKEN
+ensure_secret CCTV_MONITORING_TOKEN
+
 # ---------------------------------------------------------------------------------------
 # Validation runs in the same image that generates the config, so "valid" cannot mean two
 # different things here and in the `config` service.

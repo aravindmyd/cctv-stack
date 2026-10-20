@@ -507,3 +507,15 @@ def _with(settings: cleanup.CleanupSettings, **changes: Any) -> cleanup.CleanupS
 
 def _config(env: Env) -> config.CamerasConfig:
     return config.load_cameras_config(env.root / "cameras.yml", environ={})
+
+
+def test_the_scratch_file_reaper_outlives_a_whole_fetch_sequence() -> None:
+    """A hand-picked reaper age silently becomes a data-loss bug when the clip timeout grows.
+
+    One clip can spend several attempts writing its scratch file, each bounded by the fetch
+    timeout ceiling, so the reaper has to be older than the sum of them.
+    """
+    from cctv.clip import DEFAULT_FETCH_ATTEMPTS, DEFAULT_FETCH_TIMEOUT_CEILING_S
+
+    assert cleanup.TMP_AGE_S >= DEFAULT_FETCH_ATTEMPTS * DEFAULT_FETCH_TIMEOUT_CEILING_S
+    assert cleanup.TMP_AGE_S >= 86400.0

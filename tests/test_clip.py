@@ -84,18 +84,50 @@ def test_timeout_grows_with_the_clip() -> None:
 
 
 def test_timeout_is_capped() -> None:
+    """The ceiling bounds a *hang*, and it still does — that part of the design is unchanged."""
     assert clip.fetch_timeout_s(10_000) == clip.DEFAULT_FETCH_TIMEOUT_CEILING_S
+
+
+def test_a_long_visit_no_longer_has_a_cliff_at_twenty_eight_minutes() -> None:
+    """The regression this threshold change removed, stated as the property that broke.
+
+    At the old 1800 s ceiling every review longer than about 28 minutes got a timeout *shorter
+    than its own footage* — so the fetch could not finish, it retried, and the interesting clip
+    ended in `FAILED_PERMANENT`. Every visit up to the ceiling is now proportional.
+    """
+    for minutes in (29, 45, 90, 118):
+        seconds = minutes * 60
+        assert clip.fetch_timeout_s(seconds) > seconds
+
+
+def test_the_old_ceiling_would_have_failed_a_ninety_minute_visit() -> None:
+    """The same visit under the old numbers, so the change is measured rather than asserted."""
+    assert clip.fetch_timeout_s(5400, ceiling_s=1800.0) < 5400
+    assert clip.fetch_timeout_s(5400) > 5400
 
 
 def test_a_two_hour_review_gets_a_timeout_far_larger_than_the_base() -> None:
     """At a fixed 120 s this review would fail three times and be lost entirely.
 
-    The ceiling still applies — it bounds a hang, not a slow fetch — so the assertion is
-    that the change is material, not that the timeout is unbounded.
+    Two hours of footage plus pre- and post-roll is just past the ceiling, which is the edge
+    this number was chosen for: the timeout stops growing exactly there, and the residual is
+    recorded in the docstring rather than pretended away.
     """
     plan = clip.plan_fetch("rev-long", start_time=NOW, end_time=NOW + 7200)
-    assert plan.timeout_s == clip.DEFAULT_FETCH_TIMEOUT_CEILING_S
+    assert plan.timeout_s >= clip.DEFAULT_FETCH_TIMEOUT_CEILING_S
     assert plan.timeout_s > clip.DEFAULT_FETCH_TIMEOUT_BASE_S * 10
+
+
+def test_the_long_clip_warning_fires_before_the_timeout_can_fail() -> None:
+    """The flag is the leading indicator, so it has to come first.
+
+    A warning at or above the point where the fetch stops being proportional would arrive at
+    the same time as the failure, which makes it useless.
+    """
+    cliff = clip.DEFAULT_FETCH_TIMEOUT_CEILING_S - clip.DEFAULT_FETCH_TIMEOUT_BASE_S
+
+    assert cliff > clip.DEFAULT_LONG_CLIP_WARN_S
+    assert clip.DEFAULT_LONG_CLIP_WARN_S >= 10 * 60  # not so low that every long visit warns
 
 
 def test_negative_duration_is_refused() -> None:

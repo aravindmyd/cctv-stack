@@ -347,6 +347,8 @@ failure there is loud but not fatal: local recording does not depend on the buck
 | `CCTV_CLEANUP_OVERDUE_WARN` | `1` | Held clips before cleanup reports `DEGRADED` |
 | `CCTV_CLEANUP_OVERDUE_CRITICAL` | `10` | Held clips before it reports `UNHEALTHY` |
 | `CCTV_CLEANUP_OVERDUE_AGE_CRITICAL_DAYS` | `30` | Age of the oldest held clip that counts as critical |
+| `CCTV_RECOVER_MAX_OBJECTS` | `20000` | Objects one recovery run will consider (see [Disaster recovery](disaster-recovery.md)) |
+| `CCTV_RECOVER_CONCURRENCY` | `4` | Parallel clip downloads during a recovery |
 | `CCTV_HEALTH_DISK_WARN_PCT`, `CCTV_HEALTH_DISK_CRITICAL_PCT` | `15`, `5` | Free-space thresholds |
 
 ## Frigate's login

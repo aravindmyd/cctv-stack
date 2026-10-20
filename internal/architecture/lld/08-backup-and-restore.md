@@ -1,10 +1,13 @@
 # LLD 08 — backup and restore
 
-> **Implementation status (2026-10-20).** §2.1 (encrypted config bundle), §2.2 (online database
+> **Implementation status (2026-10-21).** §2.1 (encrypted config bundle), §2.2 (online database
 > backup, reopened and checked), §2.3 (manifest CSV), §4.1 (`backup.sh` sequence) and §5
 > (`--verify`, including staleness) are built in `src/cctv/backup.py`, with `./backup.sh` and
-> `./restore.sh` running it in the image. §2.4 (clips tarball), cloud offsite copy (§4.2),
-> scheduling (§4.3), restore drill (§5.1) and scenarios B/C (§6.2–§6.3) are **not built**.
+> `./restore.sh` running it in the image. Scenarios B and C — cloud clip recovery (§6.2) and
+> reconstruction without a backup (§6.3) — are built in `src/cctv/recover.py` as `cctv-recover`
+> `clips` and `rebuild`, published as `./restore.sh clips|rebuild`, with 37 tests. What remains
+> is §2.4 (clips tarball), cloud offsite copy (§4.2), scheduling (§4.3), the restore drill
+> (§5.1) and §7's health checks for backup freshness.
 
 **Implements:** PRD §14, [INV-4](../invariants.md), [INV-8](../invariants.md)
 
@@ -264,19 +267,26 @@ Step 8 is where the whole design pays off: because object keys are
 `data/clips/`. No mapping, no manifest resolution, no translation layer.
 
 ```text
-restore.sh --clips-from-cloud
-  1. List objects under <location>/clips/ (paginated, rate-limited)
+restore.sh clips
+  1. List objects under <location>/clips/ (paginated, capped by CCTV_RECOVER_MAX_OBJECTS)
   2. For each object:
        target = data/clips/<key minus "<location>/clips/">
        skip if present with a matching size
-       else download atomically (.tmp → rename)
-  3. Report: downloaded, skipped, failed
-  4. Reconcile: rows in state.db with no local file → mark local_deleted_at
-                files with no row → report as unexpected_local_file
+       else download atomically into a scratch file, then promote
+  3. Report: downloaded, skipped, failed (by key), refused (unsafe keys), non-canonical
+  4. Run the reconciliation pass (lld/05 §5.1) so the drift is reported by the one code that
+     defines it
 ```
 
-Downloading 60 days of clips is an egress cost and takes hours. It is offered with the
-volume and an estimate stated first.
+**Changed from the original plan, deliberately.** Step 4 used to say "rows in `state.db`
+with no local file → mark `local_deleted_at`". It must not: after a full download, a row
+without a local file means the object was *absent*, and stamping `local_deleted_at` would
+record a deletion that never happened, which corrupts the retention history that INV-1
+depends on. The honest output is a `dangling_row` finding, so the restore delegates to the
+reconciler rather than inventing a second opinion about what drift is.
+
+Downloading 60 days of clips is an egress cost and takes hours. `./restore.sh clips
+--dry-run` lists the objects and prints the volume first, and writes nothing.
 
 ### 6.3 Scenario C — `state.db` corrupted, clips intact
 
@@ -292,25 +302,47 @@ volume and an estimate stated first.
 
 **Reconstruction without a backup** (the fallback, and a good reason to have backups):
 
+Built as `./restore.sh rebuild`.
+
 ```text
-1. Read state-<ts>.manifest.csv if present   → tells us what should exist
-2. Otherwise enumerate data/clips/ and read each .mp4.json sidecar
-3. For each clip, derive: camera, event_id, start_time, path, size, sha256
-4. Ask the storage adapter whether the object exists, and its size
-5. Insert rows:
+1. Enumerate data/clips/ and read each .mp4.json sidecar where it exists
+2. List <location>/clips/ and HEAD each object, because a listing carries no user metadata
+3. Union the two inventories by relative path, and classify:
       object present, local file present  → UPLOADED
       object present, local file absent   → UPLOADED + local_deleted_at
       object absent,  local file present  → PENDING  (safe: uploader will send it)
-      object absent,  local file absent   → unrecoverable; report it explicitly
-6. Report counts per category, and the list in the last category
+      object absent,  local file absent   → nothing to rebuild; the clip is gone
+4. Report counts per category, plus the files that could not be classified, the cameras that
+   are no longer configured, and the sidecars whose clip is missing
 ```
+
+The manifest is deliberately **not** the enumeration source. It is written for a human who
+needs to know whether a clip should exist, and §2.3 already says it is informational. Making
+the rebuild depend on it would mean trusting an artefact produced by the same backup that is
+in question — and a manifest-only clip (`object absent, local file absent`) is not
+reconstructable no matter what it claims.
 
 Category 3 is safe by construction: an unknown clip is treated as *not yet uploaded*,
 so the uploader re-uploads it, idempotently, to its deterministic key. This is
 [INV-7](../invariants.md) doing the work it was designed for.
 
 **Every sha256 is recomputed from the local files** rather than trusted from the
-manifest, because the manifest is exactly the artefact whose accuracy is in question.
+manifest, because the manifest is exactly the artefact whose accuracy is in question. A
+cloud-only clip has no local bytes to hash, so it carries the hash the uploader recorded and
+the report counts those separately — the number is a claim from the provider's metadata, and
+naming it as one is the difference between a report and a reassurance.
+
+Three details that are decisions rather than mechanics:
+
+- **`uploaded_at` is the object's own modification time**, not the rebuild time. Cloud
+  retention expires on `uploaded_at` (`lld/05` §4.3); stamping `now` would restart every
+  object's `cloud_days` and silently extend the bucket.
+- **`cloud_key` is recorded for every row whose object exists.** Reconciliation walks rows
+  *with* a cloud key, so a rebuilt database that omitted it would report a clean bill of
+  health over a bucket nobody compared.
+- **A clip whose camera is no longer in `cameras.yml` is skipped and reported**, because the
+  camera table is generated from that file (INV-3). The footage stays on disk; the operator's
+  fix is to put the camera back and re-run.
 
 ### 6.4 Scenario D — decommission
 

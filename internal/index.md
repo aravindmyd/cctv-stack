@@ -21,33 +21,34 @@ nothing from this directory. A new agent should start with [`../AGENTS.md`](../A
 |---|---|
 | Product requirements | ✅ Complete — [`prd.md`](prd.md) |
 | Architecture and design | 📐 **Written, awaiting owner review** |
-| Implementation | ✅ **M1–M3 built, M4 J1, J2 and J3 built, M5 and M6 built, M7 backup/upgrade built** — detect → materialise → durable upload → local retention → aggregate status → guided install → backup and upgrade |
+| Implementation | ✅ **M1–M3 built, M4 J1–J3 built, M5 and M6 built, M7 built** — detect → materialise → durable upload → local and cloud retention → aggregate status → guided install → backup, recovery and upgrade |
 | Release | ✅ **0.7.0** — published to PyPI and GHCR |
 | Client-site packaging | 📐 |
 | Current problems | 📐 — [`now.md`](now.md) |
 
 The design set is complete: 4 entry points, 1 HLD, 1 invariant list, 6 contracts,
-10 LLDs, and 21 ADRs. The runbooks are published pages under `docs/`, not internal
+10 LLDs, and 23 ADRs. The runbooks are published pages under `docs/`, not internal
 documents.
 
 **What is built** (`src/cctv/`, entry points `cctv-clip-worker`, `cctv-config`,
-`cctv-uploader`, `cctv-cleanup`, `cctv-status`, `cctv-host`, `cctv-backup`, `cctv-doctor`,
-`cctv-migrate`, `cctv-init`, `cctv-provision`): a review becomes a
+`cctv-uploader`, `cctv-cleanup`, `cctv-status`, `cctv-host`, `cctv-backup`, `cctv-recover`,
+`cctv-doctor`, `cctv-migrate`, `cctv-init`, `cctv-provision`): a review becomes a
 file at the canonical path, the uploader pushes it to Backblaze B2 exactly once through a
-storage adapter, local retention deletes a clip only after its upload is terminal-success, the
-status collector aggregates all of it into `/status` (JSON and HTML) on 8084 and drives
-Gatus/ntfy, the installer detects the host profile and Frigate's shared-memory size,
-`cctv-backup` writes an encrypted config bundle and a verified database backup, and
-`cctv-doctor` diagnoses an installation read-only. Each service
+storage adapter, local and cloud retention delete a copy only after the other one is safe, a
+daily reconciliation pass reports drift between the bucket and the database and repairs
+nothing, the status collector aggregates all of it into `/status` (JSON and HTML) on 8084 and
+drives Gatus/ntfy, the installer detects the host profile and Frigate's shared-memory size,
+`cctv-backup` writes an encrypted config bundle and a verified database backup, `cctv-recover`
+downloads the footage back from the bucket and rebuilds the database when there is no backup,
+and `cctv-doctor` diagnoses an installation read-only. Each service
 exposes `/health` and `/metrics` per
 [`service-contracts.md`](architecture/contracts/service-contracts.md).
 
-**What is not built:** M4's cloud retention, reconciliation and housekeeping; `force-delete`
-and the cleanup lock, both deliberately deferred by
-[ADR-0021](adr/0021-defer-force-delete-and-advisory-lock.md); a live end-to-end alert run
-(M5.13, manual); the `KumaAdapter` fallback; the installer (M6); and backup/restore/upgrade
-(M7). Nothing is deleted without a successful upload, so
-[INV-1](architecture/invariants.md) holds.
+**What is not built:** M4's housekeeping (J4); `force-delete` and the cleanup lock, both
+deliberately deferred by [ADR-0021](adr/0021-defer-force-delete-and-advisory-lock.md); a live
+end-to-end alert run (M5.13, manual); the `KumaAdapter` fallback; and, from M6, test
+notifications and signed release bundles. Nothing is deleted while the other copy is still
+needed, so [INV-1](architecture/invariants.md) holds.
 
 spike/ in the repo root is still a throwaway verification harness for M1, not product code,
 and goes once M1's `VERIFY` items are replaced with measurements.

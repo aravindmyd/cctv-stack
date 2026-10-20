@@ -87,6 +87,7 @@ A moving `:edge` tag follows `master`. If the registry package is private, run
 | `cctv-provision` | Create the bucket, set versioning, write the expiry rule, prove it |
 | `cctv-doctor` | Diagnose a whole installation, read-only (`./scripts/doctor.sh`) |
 | `cctv-backup` | Encrypted config bundle, online database backup, verification |
+| `cctv-recover` | Download every clip from B2 (`clips`); reconstruct the clips table (`rebuild`) |
 | `cctv-migrate` | Apply pending migrations between stopping and starting services |
 
 The four services are long-running and configuration-driven; they take no command-line

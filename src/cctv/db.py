@@ -44,6 +44,7 @@ __all__ = [
     "QueueSummary",
     "SchemaTooNewError",
     "claim_next_upload",
+    "clip_paths",
     "clip_rows_with_cloud_key",
     "clip_rows_with_local_file",
     "cloud_expiry_batch",
@@ -67,6 +68,7 @@ __all__ = [
     "record_event",
     "record_finding",
     "record_finding_once",
+    "record_recovered_object",
     "release_lease",
     "reset_failed_permanent",
     "schema_version",
@@ -728,6 +730,44 @@ def mark_uploaded(
         )
 
 
+def record_recovered_object(
+    conn: sqlite3.Connection,
+    *,
+    clip_id: int,
+    cloud_key: str,
+    uploaded_at: Instant,
+    cloud_size_bytes: int | None = None,
+    cloud_etag: str | None = None,
+    now: Instant | None = None,
+) -> None:
+    """Attach what the bucket says about a row that reconstruction has just written.
+
+    Deliberately not [`mark_uploaded`][cctv.db.mark_uploaded]: that one records a state change
+    *we performed* and requires the `UPLOADING` → `UPLOADED` transition. A rebuilt row was
+    never uploaded by this installation — it was found already in the bucket — and conflating
+    the two would make the audit trail claim an upload that did not happen.
+
+    `uploaded_at` is the object's own modification time, not now. Cloud retention expires on
+    `uploaded_at` (`lld/05` §4.3), so stamping the rebuild time would restart every recovered
+    object's life and quietly extend it by another `retention.cloud_days`.
+
+    `cloud_key` is the key the object was actually found at. Recording it is what makes the
+    row visible to reconciliation, which walks rows *with* a cloud key — a rebuilt database
+    that omitted it would report a clean bill of health over a bucket nobody compared.
+    """
+    now = timeutil.now() if now is None else now
+    with write_txn(conn):
+        conn.execute(
+            """
+            UPDATE clips
+               SET cloud_key = ?, cloud_etag = ?, cloud_size_bytes = ?,
+                   uploaded_at = ?, updated_at = ?
+             WHERE id = ?
+            """,
+            (cloud_key, cloud_etag, cloud_size_bytes, uploaded_at, now, clip_id),
+        )
+
+
 def mark_transient_failure(
     conn: sqlite3.Connection,
     *,
@@ -953,6 +993,18 @@ def counts_by_state(conn: sqlite3.Connection) -> dict[str, int]:
             "GROUP BY upload_state ORDER BY upload_state"
         )
     }
+
+
+def clip_paths(conn: sqlite3.Connection) -> set[str]:
+    """Every `clips.path` already recorded.
+
+    For reconstruction ([`recover`][cctv.recover]), which must be repeatable: a rebuild that
+    was interrupted halfway has to be safe to run again, and the only reliable way to know
+    what it already did is to ask what paths exist. `insert_clip`'s `UNIQUE(review_id)` cannot
+    answer that on its own, because a rebuilt row may carry an invented review id that a
+    second run would invent identically — but a row rebuilt from a *sidecar* would not.
+    """
+    return {str(row["path"]) for row in conn.execute("SELECT path FROM clips")}
 
 
 #: Kept for callers that need the documented state list in a stable order.

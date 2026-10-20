@@ -4,9 +4,11 @@ The stack keeps its state in three places: the configuration files, the SQLite d
 the clips on disk. Knowing which of them you can rebuild — and which you cannot — decides
 how much work a failure costs.
 
-There is no `restore.sh` yet for anything beyond configuration and the database, and no
-reconstruction from the cloud listing. This page gives the commands to run yourself, and
-says exactly what they cover.
+There is no single command that undoes a disaster, because there is no single disaster. What
+there is: `./restore.sh` for what you backed up, and `./restore.sh clips` / `./restore.sh
+rebuild` for what you did not. Between them the clip footage in B2 and the bookkeeping in
+`state.db` are both recoverable — one from the bucket, the other from the bucket and the
+files on disk.
 
 ## Backing up
 
@@ -24,7 +26,7 @@ The configuration bundle is **encrypted by default**, because it contains `.env`
 and the clip count has not drifted from the live database. A backup that has silently stopped
 being taken is reported as stale rather than passing.
 
-Restoring:
+Restoring what you backed up:
 
 ```bash
 ./restore.sh            # list what is available
@@ -35,8 +37,15 @@ Restoring:
 The file being replaced is kept alongside as `*.pre-restore`, and an existing database is
 never overwritten without confirmation.
 
-What this does **not** do: restore clips (they are in B2), or rebuild `state.db` from the
-bucket when there is no backup at all. Both are documented as outstanding work.
+Recovering what you maybe did not back up:
+
+```bash
+./restore.sh clips --dry-run   # how many objects, how much egress — writes nothing
+./restore.sh clips             # download every object from B2 into data/clips/
+./restore.sh rebuild           # reconstruct the clips table from disk + B2
+```
+
+`clips` is the footage. `rebuild` is the bookkeeping. Both are covered below.
 
 ## What survives what
 
@@ -122,7 +131,8 @@ backup API is self-contained; stale write-ahead logs beside it are not.
 
 The database records upload state. Without it, the stack starts empty: clips already on disk
 are not adopted, clips already in the bucket are not linked to anything, and cleanup has no
-rows to expire. There is no reconstruction tool yet, so keep this file.
+rows to expire. Keep this file — and if you have lost it, see [Rebuild the database from
+what is left](#rebuild-the-database-from-what-is-left).
 
 ### 4. Restore clips that never uploaded
 
@@ -135,15 +145,18 @@ rsync -a /path/to/clip-copy/ data/clips/
 Clips that did upload can be downloaded from the bucket instead:
 
 ```bash
-BUCKET=$(grep '^CCTV_STORAGE_BUCKET=' .env | cut -d= -f2)
-LOCATION=$(grep -E '^\s*location:' config/cameras.yml | awk '{print $2}')
-
-aws s3 cp --recursive "s3://$BUCKET/$LOCATION/clips/" data/clips/ \
-  --endpoint-url "https://s3.$(grep '^CCTV_STORAGE_REGION=' .env | cut -d= -f2).backblazeb2.com"
+./restore.sh clips --dry-run   # lists the objects and estimates the egress; no writes
+./restore.sh clips             # downloads them, skipping anything already the right size
 ```
 
-Egress is billed by Backblaze, so check the volume before starting a large restore. The
-object key mirrors the local path, so a prefix download needs no manifest.
+Egress is billed by Backblaze, so the dry run exists: it tells you the volume before you
+commit to it. The object key mirrors the local path, so a prefix download needs no manifest,
+and re-running it after an interruption costs a listing rather than a second 66 GB.
+
+Each file is written to a scratch name and renamed into place, so an interrupted run never
+leaves a half-clip at a path that looks complete. A download that fails is reported by key
+and does not stop the others: the point of a recovery is to get back what it can and tell
+you precisely what it could not.
 
 ### 5. Start and verify
 
@@ -159,19 +172,61 @@ curl -s http://127.0.0.1:8083/health | jq '.state'
 Then confirm the pieces that health cannot see: cameras online in Frigate, new clips
 appearing under `data/clips/`, and the queue's `uploaded_24h` moving.
 
-## If the database is gone
+## Rebuild the database from what is left
 
-The stack will run, but it starts with no history:
+With no usable backup, `state.db` is reconstructed from the two things that survive: the
+files under `data/clips/` (each with an `.mp4.json` sidecar written beside it) and the objects
+in the bucket, whose user metadata carries camera, location, start and end times and the
+review id.
+
+```bash
+docker compose stop      # so the counts are stable
+./restore.sh rebuild
+```
+
+Every clip lands in one of three categories, and the report gives the count of each:
+
+| Situation | Recorded as | Why |
+|---|---|---|
+| Bucket object and local file both present | `UPLOADED` | Both copies are accounted for |
+| Bucket object only | `UPLOADED` + `local_deleted_at` | The object is the last copy, and saying so is what stops cleanup looking for a file to delete |
+| Local file only | `PENDING` | The safe guess: the uploader sends it to its deterministic key, and the provider deduplicates a repeat |
+
+That last row is the whole design in one line. A clip whose history is unknown is *never*
+recorded as already backed up. Guessing `PENDING` costs one duplicate upload; guessing
+`UPLOADED` would mark a clip as safe in the cloud when it is not, which is the failure the
+local-retention rule exists to prevent.
+
+A few details worth knowing, because they are choices rather than accidents:
+
+- **Hashes of local files are recomputed.** The sidecar's hash is not trusted, because the
+  sidecar is one of the things whose accuracy is in question.
+- **`uploaded_at` comes from the object, not from now.** Cloud retention expires on that
+  column, so stamping the rebuild time would restart every object's 60 days.
+- **A clip with no recorded start time is read from its path**, in the site's timezone, and
+  the report counts how many rows that affected.
+- **A clip whose camera is no longer in `cameras.yml` is left alone** and reported. The camera
+  table is generated from that file, so nothing invents a camera to hold the row.
+- **A file that is not a canonical clip path is reported, not adopted.** A row whose path
+  cannot be read as a time cannot drive retention honestly.
+
+It refuses a database that already has rows, because a damaged database is `./restore.sh
+state`'s problem. `./restore.sh rebuild --into-existing` adds only the clips it does not
+already have, and any run can be repeated safely: it skips a path that is already recorded.
+
+## If nothing at all can be rebuilt
+
+No backup, no bucket, no local tree — the stack will still run:
 
 - Frigate keeps recording and publishing reviews, and the worker materialises new clips from
   them. Those work normally.
-- Existing files under `data/clips/` are ignored. Nothing uploads them, nothing expires
-  them, and nothing in the health report mentions them.
+- Existing files under `data/clips/` are ignored. Nothing uploads them, nothing expires them,
+  and nothing in the health report mentions them.
 - Uploads that already happened are unknown to the system, so their local copies are not
   eligible for deletion.
 
-Keep the database in your backup set. Recreating it means losing the upload and retention
-state, which is the part that protects your footage.
+Keep the database in your backup set anyway. It is small, it changes constantly, and it is
+the part that protects your footage.
 
 ## Site decommissioned
 

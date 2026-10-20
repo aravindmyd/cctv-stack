@@ -103,6 +103,7 @@ class _Env:
             "http://cleanup:8083/health": {"state": "HEALTHY"},
             "http://status:8084/health": {"state": "HEALTHY"},
             "http://frigate:5000/api/stats": {"service": {"version": "0.18.0"}},
+            "http://ntfy:80/v1/health": {"healthy": True},
         }
         self.tcp_up = True
 
@@ -392,3 +393,21 @@ def test_cli_writes_the_json_report(
     assert payload["version"]
     assert (out).is_dir()
     assert code in (0, 1)
+
+
+def test_a_reachable_ntfy_server_is_reported_healthy(env: _Env) -> None:
+    finding = next(f for f in env.report().findings if f.name == "notifications")
+
+    assert finding.state == OK
+    assert "healthy=True" in finding.detail
+
+
+def test_an_unreachable_ntfy_server_is_a_warning_not_a_failure(env: _Env) -> None:
+    env.http.pop("http://ntfy:80/v1/health")
+
+    finding = next(f for f in env.report().findings if f.name == "notifications")
+
+    # Alerts cannot be delivered, but recording, clips, uploads and retention are all unaffected.
+    # Partial capability is reported as partial (INV-6).
+    assert finding.state == WARN
+    assert "http://ntfy:80" in finding.detail

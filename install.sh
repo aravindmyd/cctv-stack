@@ -159,6 +159,20 @@ fi
 say "Frigate is up."
 
 # ---------------------------------------------------------------------------------------
+# A notification channel that is misconfigured and discovered during an incident is worthless;
+# discovered now, it is a five-second fix (lld/07 §6.2). This sends a real message, so the
+# operator's phone either buzzes or it does not. Non-fatal: a site whose alerts cannot be
+# delivered still records, still clips, and still uploads.
+step "Testing notifications"
+
+if ! docker compose exec -T status cctv-notify test; then
+  say
+  say "⚠  A notification channel did not deliver the test message."
+  say "   Alerts will still be generated; they may not reach you."
+  say "   Re-run once it is fixed: docker compose exec -T status cctv-notify test"
+fi
+
+# ----------------------------------------------------------------------------------------
 step "Status"
 
 docker compose ps

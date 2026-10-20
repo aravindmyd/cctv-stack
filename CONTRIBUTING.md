@@ -25,7 +25,8 @@ design.
 | Reconciliation (J3) | ✅ built — reports drift, repairs nothing |
 | Recovery from the bucket (`./restore.sh clips\|rebuild`) | ✅ built — footage back, `state.db` rebuilt |
 | Housekeeping (J4) | ✅ built — directories, scratch files, old rows |
-| Test notifications and signed bundles | ⬜ deferred (M6) |
+| Test notifications (`./install.sh`) | ✅ built — a real message per channel |
+| Signed release bundles | ⬜ deferred (M6) |
 
 What is deferred, and why, is recorded in
 [`.private/plans/backlog.md`](.private/plans/backlog.md). The client-site delivery plan is
@@ -68,6 +69,7 @@ src/cctv/                 shared library and five services
   host_cli.py             cctv-host
   backup.py               cctv-backup: encrypted config bundle, state backup, verification
   recover.py              cctv-recover: clips back from B2, state.db rebuilt from what is left
+  notify.py               cctv-notify: a real test message to ntfy and Telegram
   doctor.py               cctv-doctor: read-only diagnosis of the whole installation
   interview.py            cctv-init: the install interview (cameras.yml + .env)
   provision.py            cctv-provision: bucket, versioning, lifecycle rule, probe

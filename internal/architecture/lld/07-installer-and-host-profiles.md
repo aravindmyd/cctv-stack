@@ -17,8 +17,11 @@
 > failure is loud but not fatal, because local recording does not need the bucket.
 > `uninstall.sh --remove-lifecycle` removes our rule and keeps the others. §8's start order is
 > built; §8.2's per-component verification is `cctv-doctor`. **Not built yet:** test
-> notifications (§6.2), the Telegram channel, and the signed-bundle paths (M6.19–M6.24). The
-> profile table is data in `PROFILES`, so adding a row needs no code change.
+> the signed-bundle paths (M6.19–M6.24). §6.2 is built as `cctv-notify test`
+> (`src/cctv/notify.py`): `install.sh` runs it after the stack is up, sends a real message to
+> every configured channel, and reports each verdict without failing the install. ntfy is
+> always a channel — it ships in the default stack — and Telegram is the optional second one.
+> The profile table is data in `PROFILES`, so adding a row needs no code change.
 
 Making a new machine into a working CCTV installation with one command, on hardware
 we have never seen, without the operator needing to understand the internals.
@@ -276,6 +279,26 @@ NOTIFICATIONS     ntfy    topic + server URL
 The installer sends a real message to ntfy and Telegram. A misconfigured
 notification channel discovered during an incident is worthless; discovered during
 installation, it is a five-second fix.
+
+> **Built (2026-10-21)** as `cctv-notify test`, run by `install.sh` after the stack is up and
+> before it prints the summary. Four decisions worth recording:
+>
+> - **It runs after `docker compose up`, not during the interview.** ntfy is a container, and a
+>   test message sent while it is not running would report a failure that is not one.
+> - **The topic is `CCTV_STATUS_NTFY_TOPIC`**, the same setting `status` generates Gatus's
+>   config from. One topic, so a test message arrives where the real alerts will.
+> - **"Not configured" is not "failed".** A site with ntfy only is a supported state and is
+>   reported as skipped, not broken; a site with *half* a Telegram configuration exits 78,
+>   because that is a mistake rather than a choice (the same distinction the uploader makes
+>   between `DISABLED` and 78).
+> - **A credential never reaches the output.** A Telegram bot token lives in the URL *path*, so
+>   scrubbing userinfo — which is what `logging.redact_url` does, correctly, for camera URLs —
+>   would not touch it. Errors are built from status codes and Telegram's own `description`,
+>   and the token is substituted out as a last resort (INV-2).
+>
+> `doctor` gained the reachability half in its `connectivity` section: `GET /v1/health` on the
+> ntfy server, `WARN` when it fails because alerts cannot be delivered but recording, clips,
+> uploads and retention are all unaffected (INV-6: partial capability reported as partial).
 
 ---
 

@@ -416,9 +416,7 @@ def _parse_frigate_hwaccel(data: Any) -> str:
     word = value.strip().lower()
     allowed = {"off", *HWACCEL_PRESETS}
     if word not in allowed:
-        raise ConfigError(
-            f"frigate.hwaccel: {value!r} is not one of {', '.join(sorted(allowed))}."
-        )
+        raise ConfigError(f"frigate.hwaccel: {value!r} is not one of {', '.join(sorted(allowed))}.")
     return word
 
 

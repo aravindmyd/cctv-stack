@@ -56,6 +56,20 @@ sudo tar -xzf "cctv-stack-$VERSION.tar.gz" -C /opt/cctv --strip-components=1
 cd /opt/cctv && sudo ./install.sh
 ```
 
+`install.sh` notices the bundle's `versions.yml` and does not build: it picks the
+`compose.override.yml` for this machine's architecture, pulls those exact digests, and
+only then asks its questions. There is no source in the bundle to build from, so the two
+paths cannot be confused.
+
+Pinned by digest in a release: this project's image, Frigate, and mosquitto. **Not yet
+pinned:** Gatus and ntfy, which are pulled by tag because their digests are not in the
+release manifest — a gap that is recorded rather than glossed over.
+
+| Flag | What it does |
+|---|---|
+| `--offline` | Skip the pull. Every pinned image must already be loaded, and each one is checked before anything starts |
+| `--registry HOST` | Fetch our image from a mirror at `HOST`, keeping the digest. Frigate and mosquitto are left alone: a mirror that serves "the same version" retagged is not the same bytes |
+
 ## From the repository
 
 For development, or if you want the source:

@@ -17,9 +17,9 @@
 > failure is loud but not fatal, because local recording does not need the bucket.
 > `uninstall.sh --remove-lifecycle` removes our rule and keeps the others. §8's start order is
 > built; §8.2's per-component verification is `cctv-doctor`. **Not built yet:** test
-> the installer's half of the signed-bundle paths (M6.19–M6.24): the bundle itself is built,
-> verified and signed by `src/cctv/release.py` and the `bundle` job in `publish.yml`, but
-> `install.sh` does not yet consume `versions.yml`. §6.2 is built as `cctv-notify test`
+> M6.19–M6.24 are built apart from the offline archives: `src/cctv/release.py` builds and
+> verifies the bundle, `publish.yml` signs it, and `install.sh` consumes it (`versions.yml` →
+> the architecture's pinned override, `--registry`, `--offline`). §6.2 is built as `cctv-notify test`
 > (`src/cctv/notify.py`): `install.sh` runs it after the stack is up, sends a real message to
 > every configured channel, and reports each verdict without failing the install. ntfy is
 > always a channel — it ships in the default stack — and Telegram is the optional second one.

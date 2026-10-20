@@ -48,7 +48,7 @@ exposes `/health` and `/metrics` per
 **What is not built:** J5's full retention report; `force-delete` and the cleanup lock, both
 deliberately deferred by [ADR-0021](adr/0021-defer-force-delete-and-advisory-lock.md); a live
 end-to-end alert run (M5.13, manual); the `KumaAdapter` fallback; and, from M6, test
-the installer's half of the signed-bundle path. Nothing is deleted while the other copy is still
+the offline image archives. Nothing is deleted while the other copy is still
 needed, so [INV-1](architecture/invariants.md) holds.
 
 spike/ in the repo root is still a throwaway verification harness for M1, not product code,

@@ -67,6 +67,10 @@ def images(**overrides: Any) -> dict[str, str]:
     return base
 
 
+#: The services in the fixture's `compose.yml` that run `${CCTV_IMAGE}`.
+FIXTURE_SERVICES = ("worker",)
+
+
 def assemble(repo: Path, out: Path, **overrides: Any) -> release.BundleResult:
     kwargs: dict[str, Any] = {
         "repo": repo,
@@ -112,14 +116,14 @@ def repo(tmp_path: Path) -> Path:
     return root
 
 
-def _canonical_name(directory: Path, sub: str) -> Path:
-    """A tampered archive in its own directory under the release's name.
+def _canonical_name(source: Path, directory: Path, sub: str) -> Path:
+    """A tampered copy of `source`, in its own directory, under the *same* filename.
 
-    `inspect` derives the top-level directory from the filename, because the filename *is* the
+    `inspect` derives the top-level directory from the filename, because the filename is the
     contract (`cctv-stack-<version>.tar.gz`). A rewrite under any other name would be testing a
-    different rule.
+    different rule and passing for the wrong reason.
     """
-    target = directory / sub / "cctv-stack-9.9.9.tar.gz"
+    target = directory / sub / source.name
     target.parent.mkdir(parents=True, exist_ok=True)
     return target
 
@@ -146,7 +150,7 @@ def test_the_bundle_holds_the_allowlist_and_the_generated_files(repo: Path, tmp_
 
     shipped = contents(result.archive)
     expected = set(release.BUNDLE_ALLOWLIST) - {"compose.yml"}
-    expected |= {"VERSION", "compose.yml", "versions.yml", "SHA256SUMS"}
+    expected |= {"VERSION", "compose.yml", "versions.yml", "SHA256SUMS", *release.OVERRIDE_FILES}
 
     assert shipped.keys() == expected
 
@@ -336,7 +340,7 @@ def test_an_arm64_site_gets_the_arm64_digest(repo: Path) -> None:
         mosquitto_image=MOSQUITTO,
     )
 
-    text = release.override_for(manifest, arch="arm64")
+    text = release.override_for(manifest, arch="arm64", services=FIXTURE_SERVICES)
 
     assert DIGEST_ARM64 in text
     assert DIGEST_AMD64 not in text
@@ -372,7 +376,7 @@ def test_a_clean_bundle_inspects_clean(repo: Path, tmp_path: Path) -> None:
 
 def test_inspect_catches_a_forbidden_path_that_got_in(repo: Path, tmp_path: Path) -> None:
     result = assemble(repo, tmp_path / "dist")
-    tampered = _canonical_name(tmp_path, "tampered")
+    tampered = _canonical_name(result.archive, tmp_path, "tampered")
     with tarfile.open(result.archive, "r:gz") as source, tarfile.open(tampered, "w:gz") as target:
         for member in source.getmembers():
             handle = source.extractfile(member) if member.isfile() else None
@@ -392,7 +396,7 @@ def test_inspect_catches_a_file_that_does_not_match_its_checksum(
     repo: Path, tmp_path: Path
 ) -> None:
     result = assemble(repo, tmp_path / "dist")
-    tampered = _canonical_name(tmp_path, "changed")
+    tampered = _canonical_name(result.archive, tmp_path, "changed")
     with tarfile.open(result.archive, "r:gz") as source, tarfile.open(tampered, "w:gz") as target:
         for member in source.getmembers():
             if member.name.endswith("install.sh"):
@@ -413,7 +417,7 @@ def test_inspect_catches_a_file_that_does_not_match_its_checksum(
 
 def test_inspect_catches_a_bundle_that_still_builds(repo: Path, tmp_path: Path) -> None:
     result = assemble(repo, tmp_path / "dist")
-    tampered = _canonical_name(tmp_path, "building")
+    tampered = _canonical_name(result.archive, tmp_path, "building")
     with tarfile.open(result.archive, "r:gz") as source, tarfile.open(tampered, "w:gz") as target:
         for member in source.getmembers():
             handle = source.extractfile(member) if member.isfile() else None
@@ -622,3 +626,186 @@ def test_the_workflow_bundles_and_inspects_before_it_signs() -> None:
 
     # Verify before signing: a signature over an artefact nobody checked is a signed mistake.
     assert bundle_at < inspect_at < sign_at
+
+
+# ---------------------------------------------------------------------------------------
+# install.sh consuming a bundle
+# ---------------------------------------------------------------------------------------
+
+INSTALL = REPO / "install.sh"
+
+
+def _mirror_awk() -> str:
+    """The `--registry` rewrite, lifted out of install.sh.
+
+    Coupled to the script's shape on purpose: the point is to test the program that actually
+    runs, and the failure mode of that coupling (the script is edited and this stops finding it)
+    is a loud test failure rather than a silently unverified installer.
+    """
+    text = INSTALL.read_text(encoding="utf-8")
+    start = text.find("awk -v target=")
+    assert start != -1, "install.sh no longer rewrites the registry with awk"
+    end = text.find('\' "$override"', start)
+    assert end != -1, "the awk program's terminator changed"
+    program = text[start + len("awk ") : end]
+    # Drop the `-v target=...` prefix; the test supplies its own target.
+    return program.split("\n", 1)[1]
+
+
+def test_the_first_image_line_of_an_override_is_ours(repo: Path) -> None:
+    """install.sh rewrites the first `image:` it finds, so the order is load-bearing."""
+    manifest = release.versions_manifest(
+        version="9.9.9",
+        repo=repo,
+        images=images(),
+        frigate_version="0.18.0",
+        frigate_contract_verified="0.18.0",
+        frigate_images={"amd64": FRIGATE_AMD64, "arm64": FRIGATE_ARM64},
+        mosquitto_image=MOSQUITTO,
+    )
+
+    text = release.override_for(manifest, arch="amd64", services=FIXTURE_SERVICES)
+    image_lines = [line for line in text.splitlines() if line.strip().startswith("image:")]
+
+    assert len(image_lines) == 3
+    assert DIGEST_AMD64 in image_lines[0]
+    # The other two follow it, in the order the generated file writes them.
+    assert MOSQUITTO in image_lines[1]
+    assert FRIGATE_AMD64 in image_lines[2]
+
+
+def test_the_registry_flag_moves_the_host_and_keeps_the_digest(repo: Path, tmp_path: Path) -> None:
+    import subprocess
+
+    manifest = release.versions_manifest(
+        version="9.9.9",
+        repo=repo,
+        images=images(),
+        frigate_version="0.18.0",
+        frigate_contract_verified="0.18.0",
+        frigate_images={"amd64": FRIGATE_AMD64, "arm64": FRIGATE_ARM64},
+        mosquitto_image=MOSQUITTO,
+    )
+    source = tmp_path / "override.yml"
+    source.write_text(
+        release.override_for(manifest, arch="amd64", services=FIXTURE_SERVICES),
+        encoding="utf-8",
+    )
+
+    program = _mirror_awk()
+    mirrored = subprocess.run(
+        ["awk", "-v", "target=registry.site.local/cctv-stack", program, str(source)],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+
+    assert f"registry.site.local/cctv-stack@{DIGEST_AMD64}" in mirrored
+    # Everything else is untouched: a site may mirror only what this project publishes.
+    assert FRIGATE_AMD64 in mirrored
+    assert MOSQUITTO in mirrored
+    assert "ghcr.io/x/cctv-stack" not in mirrored
+
+
+def test_the_installer_detects_a_bundle_rather_than_being_told() -> None:
+    text = INSTALL.read_text(encoding="utf-8")
+
+    # One file's presence decides it, so there is no flag to get wrong and a bundle can never
+    # silently try to build source it does not contain.
+    assert "if [[ -f versions.yml && -f compose.override.amd64.yml ]]" in text
+    assert "docker compose build" in text  # still there for a repository checkout
+
+
+def test_the_installer_documents_its_flags() -> None:
+    import subprocess
+
+    help_text = subprocess.run(
+        ["bash", str(INSTALL), "--help"], check=True, capture_output=True, text=True
+    ).stdout
+
+    assert "--offline" in help_text
+    assert "--registry" in help_text
+
+
+def test_the_installer_refuses_an_unknown_argument() -> None:
+    import subprocess
+
+    result = subprocess.run(["bash", str(INSTALL), "--nonsense"], capture_output=True, text=True)
+
+    assert result.returncode != 0
+    assert "unknown argument" in result.stderr
+
+
+def test_offline_mode_still_verifies_every_pinned_image() -> None:
+    text = INSTALL.read_text(encoding="utf-8")
+
+    # `--offline` skips the pull, never the check: an unloaded image is a clear failure rather
+    # than a Compose error three steps later.
+    assert "docker image inspect" in text
+    assert "is not loaded" in text
+
+
+def test_every_cctv_service_is_named_in_the_override(repo: Path) -> None:
+    """The bug this test exists for: an override that pins nothing at all.
+
+    `x-cctv-image` is an extension key Compose ignores, and a YAML anchor does not resolve across
+    two merged files. So an override that only redefined the anchor would leave every container
+    running whatever `cctv-stack:local` was on the host — and nothing else would complain.
+    """
+    manifest = release.versions_manifest(
+        version="9.9.9",
+        repo=repo,
+        images=images(),
+        frigate_version="0.18.0",
+        frigate_contract_verified="0.18.0",
+        frigate_images={"amd64": FRIGATE_AMD64, "arm64": FRIGATE_ARM64},
+        mosquitto_image=MOSQUITTO,
+    )
+
+    derived = yaml.safe_load(
+        release.override_for(manifest, arch="amd64", services=FIXTURE_SERVICES)
+    )
+
+    # The anchor resolves here, because it is defined in the same file the services merge from.
+    assert derived["services"]["worker"]["image"] == f"ghcr.io/x/cctv-stack@{DIGEST_AMD64}"
+
+
+def test_the_cctv_services_are_derived_from_compose_not_listed() -> None:
+    source = (REPO / "compose.yml").read_text(encoding="utf-8")
+
+    found = release.cctv_services(source)
+
+    # Adding a service to compose.yml cannot leave it unpinned: it is found by its image
+    # reference, not by appearing in a list someone has to remember to update.
+    assert found
+    assert "clip-worker" in found
+    assert "mosquitto" not in found
+    assert "frigate" not in found
+
+
+def test_inspect_catches_an_override_that_pins_nothing(tmp_path: Path) -> None:
+    """The half-fix: the anchor present, no service merged from it."""
+    result = assemble(REPO, tmp_path / "dist")
+    tampered = _canonical_name(result.archive, tmp_path, "unpinned")
+    with tarfile.open(result.archive, "r:gz") as source, tarfile.open(tampered, "w:gz") as target:
+        for member in source.getmembers():
+            handle = source.extractfile(member) if member.isfile() else None
+            if member.name.endswith("compose.override.amd64.yml"):
+                payload = (
+                    "x-cctv-image-override: &cctv-image-override\n"
+                    "  image: ghcr.io/x/cctv-stack@sha256:" + "a" * 64 + "\n"
+                    "services:\n"
+                    "  mosquitto:\n"
+                    "    image: eclipse-mosquitto@sha256:" + "e" * 64 + "\n"
+                ).encode()
+                info = tarfile.TarInfo(member.name)
+                info.size = len(payload)
+                info.mode = member.mode
+                target.addfile(info, io.BytesIO(payload))
+                continue
+            target.addfile(member, handle)
+
+    checked = release.inspect(tampered)
+
+    assert not checked.ok
+    assert any("does not pin every cctv service" in problem for problem in checked.problems)

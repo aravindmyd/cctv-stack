@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Install the stack on this machine.
 #
-#   ./install.sh
+#   ./install.sh                   build from source (a repository checkout)
+#   ./install.sh --offline         use images already loaded; pull nothing
+#   ./install.sh --registry HOST   mirror our image from HOST, digest unchanged
 #
 # Safe to run repeatedly. Every step reconciles rather than destroys, and nothing here
 # deletes state — an installer that can lose footage is worse than one that refuses to run.
@@ -22,6 +24,36 @@ die() {
   exit 1
 }
 
+# ----------------------------------------------------------------------------------------
+# A *release bundle* contains `versions.yml` and pins every image by digest. A *repository
+# checkout* does not, and builds instead. The difference is one file, so it is detected rather
+# than configured: there is no flag to get wrong, and a bundle can never silently try to build
+# source it does not contain.
+offline=0
+registry=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --offline) offline=1 ;;
+    --registry)
+      registry="${2:-}"
+      [[ -n "$registry" ]] || die "--registry needs a host."
+      shift
+      ;;
+    --registry=*) registry="${1#*=}" ;;
+    -h | --help)
+      sed -n '3,7p' "$0" | sed 's/^# \{0,1\}//'
+      exit 0
+      ;;
+    *) die "unknown argument: $1" ;;
+  esac
+  shift
+done
+
+release_bundle=0
+if [[ -f versions.yml && -f compose.override.amd64.yml ]]; then
+  release_bundle=1
+fi
+
 # ---------------------------------------------------------------------------------------
 step "Checking prerequisites"
 
@@ -30,9 +62,55 @@ docker compose version >/dev/null 2>&1 || die "the docker compose plugin is not 
 docker info >/dev/null 2>&1 || die "the Docker daemon is not reachable. Start Docker and run this again."
 
 # ---------------------------------------------------------------------------------------
-step "Building the image"
+if [[ "$release_bundle" -eq 1 ]]; then
+  # The bundle pins digests, so there is nothing to build and nothing to guess: the architecture
+  # picks one of two pre-generated overrides, and Compose loads `compose.override.yml`
+  # automatically for every later step in this script.
+  step "Pinning the images this release was signed for"
 
-docker compose build
+  case "$(uname -m)" in
+    x86_64 | amd64) arch=amd64 ;;
+    aarch64 | arm64) arch=arm64 ;;
+    *) die "unsupported architecture $(uname -m). This release pins amd64 and arm64 only." ;;
+  esac
+
+  override="compose.override.${arch}.yml"
+  [[ -f "$override" ]] || die "$override is missing from this bundle. Re-download the release."
+
+  if [[ -n "$registry" ]]; then
+    # `--registry` moves the *host* and keeps the digest: a mirror serving "the same version"
+    # retagged is not the same bytes, and the signature covers the digest. Only our own image is
+    # rewritten — Frigate and mosquitto may not be mirrored, and rewriting them would break a
+    # site that mirrors only what this project publishes.
+    say "Mirroring our image from $registry, digest unchanged."
+    awk -v target="${registry%/}/cctv-stack" '
+      !done && /^  image: / { sub(/^  image: [^@]*/, "  image: " target); done = 1 }
+      { print }
+    ' "$override" > compose.override.yml
+    # The first `image:` line in the generated file is ours, which tests/test_release.py asserts.
+  else
+    cp "$override" compose.override.yml
+  fi
+
+  if [[ "$offline" -eq 1 ]]; then
+    # `--offline` skips the *pull*, never the verification: every image has to be here already,
+    # and is compared against this release's digests before anything starts.
+    step "Checking the pinned images are already loaded"
+    while read -r image; do
+      docker image inspect "$image" >/dev/null 2>&1 ||
+        die "$image is not loaded. Load the offline archive first (docker load), then re-run."
+    done < <(grep -E '^    image: ' compose.override.yml | sed 's/^    image: //')
+    say "Every image this release pins is present locally."
+  else
+    step "Pulling the pinned images"
+    docker compose pull ||
+      die "could not pull the images this release pins. Check registry access and re-run."
+  fi
+else
+  step "Building the image"
+
+  docker compose build
+fi
 
 # ---------------------------------------------------------------------------------------
 # The interview runs in the image, not on the host: installing must never need Python here

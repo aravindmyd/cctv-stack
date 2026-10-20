@@ -217,9 +217,10 @@ Fixed in the worker, not configurable:
 |---|---|
 | Wait before fetching, after the review ends | 15 seconds |
 | Fetch attempts before giving up | 3 |
+| Longest fetch the timeout is set for | 2 hours |
 | Coverage at or above which a clip is good | 0.95 |
 | Coverage below which an attempt is rejected | 0.80 |
-| Reviews longer than this are flagged, never split | 600 seconds |
+| Reviews longer than this are flagged, never split | 1800 seconds |
 
 There is no re-fetch command. The worker skips a review that already has a clip row, so
 re-materialising one means removing that row and its file and letting the sweep offer the

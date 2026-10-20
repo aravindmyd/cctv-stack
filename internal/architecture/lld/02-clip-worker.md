@@ -560,6 +560,8 @@ by fixing the cause.
 | `fetch_concurrency` | 2 | We are a guest on Frigate's CPU. Each concurrent fetch runs an ffmpeg cut |
 | Queue depth | 4 | Back-pressure rather than unbounded memory |
 | `fetch_timeout_s` | 120 | A 25 s clip should cut in well under a minute; 120 s is generous |
+| fetch timeout ceiling | 7200 | `base + requested_s`, clamped. Two hours, so footage plus headroom fits underneath it |
+| `long_clip_warn_s` | 1800 | Below the ceiling on purpose: the flag is the leading indicator |
 | Max in-flight pins | 500 | Bounds how much Frigate disk we withhold |
 | DB transactions | Short, never spanning I/O | Per the DB contract |
 
@@ -614,6 +616,24 @@ headroom exhausted      → data loss, recorded in EXPIRED_BEFORE_FETCH, counted
 | `max_gap_s` | 2.0 ⚠️ | Video packet delta above this counts as a hole. **Not yet trustworthy** — see the warning below |
 | `gap_check_max_s` | 300 | Above this duration, sample packets rather than scanning |
 | `long_clip_warn_s` | 1800 | Flag long clips. They are stored in full regardless |
+
+> **Calibrated 2026-10-21.** The fetch timeout ceiling was 1800 s, which put it *below the clip
+> length* for any review over 28 minutes: the fetch could never finish, it retried three times,
+> and the longest and most interesting clip ended in `FAILED_PERMANENT`. A timeout shorter than
+> the footage it is fetching is not a bound, it is a guaranteed failure — so the ceiling is now
+> 7200 s, set from the longest visit worth supporting rather than from the largest number that
+> looked safe.
+>
+> The residual is stated rather than hidden: past two hours the timeout stops growing, so a
+> review kept open longer than that still gets a timeout below its footage. That is a
+> segmentation question (§3.5's measurement), not a bigger-number question, because an unbounded
+> timeout lets a stuck connection hold a fetch slot for a day.
+>
+> `long_clip_warn_s` came down from 1800-in-the-doc / 600-in-code (the code had drifted) to
+> 1800, and its purpose is now the one that makes it useful: it fires *before* the timeout stops
+> being proportional, so a visit heading for the cliff is visible in the log rather than only in
+> the failure. J4's scratch-file reaper age is derived from the same ceiling, so it cannot be
+> left behind by a future change to it.
 | `trim_to_range` | `false` | Opt-in trimming. **Can only remove footage, never restore it** |
 | `fetch_concurrency` | 2 | Parallel downloads |
 | `fetch_timeout_s` | 120 | Per-download timeout |

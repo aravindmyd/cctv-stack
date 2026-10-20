@@ -70,10 +70,27 @@ DEFAULT_FETCH_ATTEMPTS = 3
 #: mode: at 120 s, every review longer than about two minutes fails, and with a generous
 #: `visit_gap_s` those are precisely the interesting ones.
 DEFAULT_FETCH_TIMEOUT_BASE_S = 120.0
-DEFAULT_FETCH_TIMEOUT_CEILING_S = 1800.0
+
+#: Two hours. The ceiling exists to bound a *hang* rather than a slow-but-working fetch, and
+#: it is only defensible if footage-length plus headroom fits underneath it — otherwise the
+#: timeout is shorter than the clip it is fetching, which is a guaranteed failure dressed up
+#: as a bound. At the previous 1800 s the cliff was a 28-minute visit: past that the timeout
+#: was below the clip's own length, so one long review became three doomed attempts and then
+#: a `FAILED_PERMANENT` — the worst possible clip to lose, because a long visit is the
+#: interesting one.
+#:
+#: What remains beyond two hours is a *review* that long, which is Frigate's decision rather
+#: than ours, and the answer to it is measurement (backlog §1.3) rather than a bigger number
+#: here. A review kept open for a whole day has to be segmented, not fetched with a 24-hour
+#: timeout that occupies a fetch slot for a day.
+DEFAULT_FETCH_TIMEOUT_CEILING_S = 7200.0
 
 #: Flag only. A long review is stored in full, never truncated and never split.
-DEFAULT_LONG_CLIP_WARN_S = 600.0
+#:
+#: Deliberately well below the ceiling: it is the leading indicator, so a visit heading toward
+#: the two-hour cliff is visible in the log long before it can fail. At 600 s it fired on
+#: ordinary long visits instead, and a warning that always fires is a warning nobody reads.
+DEFAULT_LONG_CLIP_WARN_S = 1800.0
 
 
 class ClipPlanError(ValueError):
@@ -127,6 +144,15 @@ def fetch_timeout_s(
     fetch. A generous timeout is right for a large clip, but an unbounded one lets a stuck
     connection occupy a fetch slot for as long as the clip is long, which is how a queue
     quietly stops draining.
+
+    The two conflict only for a clip longer than the ceiling, and the arithmetic of the
+    compromise is worth stating rather than hiding: at the ceiling the timeout stops growing,
+    so a review whose footage is longer than `ceiling - base` gets a timeout shorter than its
+    own length. Raising the ceiling moves that point instead of removing it, and removing it
+    entirely would mean no bound at all — so the ceiling was set from the longest visit worth
+    supporting rather than from the largest number that looked safe. Past two hours a *review*
+    that long is Frigate's decision, and the answer to it is measurement (`lld/02` §3.5), not a
+    longer timeout.
     """
     if requested_s < 0:
         raise ClipPlanError(f"requested duration cannot be negative, got {requested_s}.")

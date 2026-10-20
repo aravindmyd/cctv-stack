@@ -48,6 +48,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from . import atomic, db, health, paths, storage, timeutil
+from .clip import DEFAULT_FETCH_ATTEMPTS, DEFAULT_FETCH_TIMEOUT_CEILING_S
 from .config import CamerasConfig, ConfigError, load_cameras_config
 from .logging import configure_logging
 from .reconcile import CRITICAL_KINDS, Reconciler, ReconcileRun
@@ -152,9 +153,15 @@ DEFAULT_HOUSEKEEP_INTERVAL_S = 86400.0
 #: delete the very artefact the rollback depends on.
 DEFAULT_KEEP_DB_BACKUPS = 10
 
-#: A `.tmp` may belong to a fetch happening right now. This is the belt-and-braces tier *behind*
-#: the worker's own reaper, so it is generous: a day, not minutes.
-TMP_AGE_S = 86400.0
+#: A `.tmp` may belong to a fetch happening right now, so this is the belt-and-braces tier behind
+#: the worker's own reaper and it is the *age* that matters, not the name.
+#:
+#: Derived rather than chosen, because a hand-picked number here silently becomes a data-loss
+#: bug the day the clip timeout grows: one clip can spend up to `DEFAULT_FETCH_ATTEMPTS` fetches
+#: writing its scratch file, each bounded by `DEFAULT_FETCH_TIMEOUT_CEILING_S`, so the reaper
+#: must outlive the whole sequence. The day is a floor for tidiness — a scratch file younger than
+#: that is not worth the risk of being wrong about.
+TMP_AGE_S = max(86400.0, DEFAULT_FETCH_ATTEMPTS * DEFAULT_FETCH_TIMEOUT_CEILING_S)
 
 #: `*.bad` files are the evidence of a fetch that produced something unplayable. A week is long
 #: enough for someone to notice and short enough not to accumulate.

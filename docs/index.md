@@ -73,6 +73,7 @@ Full steps — including the by-hand path and the pip-only route — are in [Ins
 | [Diagnose problems](doctor.md) | `./scripts/doctor.sh`: what it checks and how to read it |
 | [Recover failed uploads](recover-uploads.md) | Why clips are not reaching B2, and what to do |
 | [Rotate credentials](rotate-credentials.md) | B2 keys and camera passwords |
+| [Browse recordings over SMB](smb-share.md) | Optional read-only network share of the footage |
 | [Disaster recovery](disaster-recovery.md) | What to back up, and how to rebuild |
 | [Clip boundaries](clip-boundaries.md) | Clips that are short, gapped, or misaligned |
 | [Glossary](glossary.md) | The vocabulary these pages use |
